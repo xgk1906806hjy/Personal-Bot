@@ -45,6 +45,7 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 			"), but set_workdir may switch to ANY absolute path (any drive). " +
 			"When the user asks to open/switch a project: list_dir / set_workdir with the full path, then confirm. " +
 			"get_workdir shows the current directory. File/command tools and later /cursor use that workdir. " +
+			"For facts, news, or docs you do not know: web_search; for a known URL: fetch_url. " +
 			"Available tools: " + strings.Join(c.tools.ToolNames(), ", ") + "."
 	}
 

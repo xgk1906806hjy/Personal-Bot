@@ -115,7 +115,7 @@ scripts/cursor-agent ◄── cursor_local 与 /cursor 模式
 | 消息 | `MESSAGING_CHANNELS`、飞书 / QQ 凭证、`QQ_TRANSPORT` |
 | 模型 | `MODEL_CHANNEL`、`GATEWAY_*`、`CODEX_*`、`CURSOR_*` |
 | 会话 | `SESSION_TTL_HOURS`、`SESSION_COMPRESS_AFTER`、`SESSION_KEEP_RECENT` |
-| 工具 | `TOOLS_*`、`TOOL_WORKSPACE`（默认起点，非路径监狱） |
+| 工具 | `TOOLS_*`、`WEB_TOOLS_ENABLED`、`TOOL_HTTP_TIMEOUT_SEC`、`TOOL_WORKSPACE`（默认起点，非路径监狱） |
 
 `cursor_local` 需要 `CURSOR_API_KEY`；`/cursor` 模式同样依赖该 key（`CreateCursorOptional`）。
 
@@ -228,8 +228,10 @@ type Request struct {
 | `list_dir` / `read_file` / `write_file` | 相对**当前会话 workdir** |
 | `run_command` | cwd = 当前 workdir |
 | `get_workdir` / `set_workdir` | 查看 / 切换；**允许任意绝对路径** |
+| `web_search` | 无 Key；DuckDuckGo HTML 解析结果（标题/URL/摘要） |
+| `fetch_url` | GET http(s)；HTML→纯文本；体长受 `TOOL_MAX_OUTPUT_BYTES` 限制 |
 
-`TOOL_WORKSPACE` 仅为默认起点。`pathResolver` 通过 context 中的 SessionKey 读 `WorkdirStore`。
+`TOOL_WORKSPACE` 仅为默认起点。`pathResolver` 通过 context 中的 SessionKey 读 `WorkdirStore`。联网工具由 `WEB_TOOLS_ENABLED`（默认 true）控制；实现见 `web.go`。
 
 ---
 

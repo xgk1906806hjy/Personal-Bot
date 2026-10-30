@@ -24,7 +24,7 @@ QQ / 飞书 / 微信     gateway_api / codex_local / cursor_local
 |----|--------|------|
 | 消息平台 | `qq`（WebSocket + Webhook）、`feishu`（Webhook） | `wechat` 仅为占位 |
 | 模型通道 | `gateway_api`、`codex_local`、`cursor_local` | 三者同级；另可用 `/cursor` 会话级进入 Cursor 模式 |
-| 工具 | `read_file` / `write_file` / `list_dir` / `run_command` / `get_workdir` / `set_workdir` | `gateway_api` 的 OpenAI tools；会话级 workdir，可切任意盘符路径 |
+| 工具 | `read_file` / `write_file` / `list_dir` / `run_command` / `get_workdir` / `set_workdir` / `web_search` / `fetch_url` | `gateway_api` 的 OpenAI tools；会话级 workdir；无 Key 联网检索 |
 | 会话 | 多会话、压缩、token 统计、Cursor 模式与 Agent resume | 内存存储，重启清空 |
 
 ## 快速开始
@@ -122,8 +122,10 @@ npm install --prefix scripts/cursor-agent   # 需 Node ≥ 22.13
 
 ```env
 TOOLS_ENABLED=true
+WEB_TOOLS_ENABLED=true
 TOOL_WORKSPACE=E:\cursor
 TOOL_COMMAND_TIMEOUT_SEC=60
+TOOL_HTTP_TIMEOUT_SEC=20
 TOOL_MAX_ROUNDS=8
 TOOL_MAX_OUTPUT_BYTES=100000
 ```
@@ -132,6 +134,10 @@ TOOL_MAX_OUTPUT_BYTES=100000
 |------|------|
 | `list_dir` / `read_file` / `write_file` / `run_command` | 相对**当前会话 workdir** |
 | `get_workdir` / `set_workdir` | 查看 / 切换工作目录（可绝对路径到任意盘） |
+| `web_search` | 无 Key 联网搜索（DuckDuckGo HTML）；返回标题/链接/摘要 |
+| `fetch_url` | 拉取 http(s) 页面正文（HTML 去标签）；受 `TOOL_MAX_OUTPUT_BYTES` 截断 |
+
+模型按需调用工具（`tool_choice=auto`），不会每次全调。DDG HTML 可能偶发风控或页面结构变化。`WEB_TOOLS_ENABLED=false` 可关掉联网工具。
 
 `TOOL_WORKSPACE` 只是**默认起点**，不是路径监狱。切换后文件工具与 `/cursor` 共用该会话 workdir。
 

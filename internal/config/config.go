@@ -65,8 +65,10 @@ type Config struct {
 	BotSystemPrompt      string
 
 	ToolsEnabled          bool
+	WebToolsEnabled       bool
 	ToolWorkspace         string
 	ToolCommandTimeoutSec int
+	ToolHTTPTimeoutSec    int
 	ToolMaxRounds         int
 	ToolMaxOutputBytes    int
 }
@@ -104,7 +106,9 @@ func Load() (*Config, error) {
 			"You are my personal exclusive assistant. Be concise, practical, and clear. If you are unsure, say what is missing instead of guessing.",
 		),
 		ToolsEnabled:          getenvBool("TOOLS_ENABLED", true),
+		WebToolsEnabled:       getenvBool("WEB_TOOLS_ENABLED", true),
 		ToolCommandTimeoutSec: getenvInt("TOOL_COMMAND_TIMEOUT_SEC", 60),
+		ToolHTTPTimeoutSec:    getenvInt("TOOL_HTTP_TIMEOUT_SEC", 20),
 		ToolMaxRounds:         getenvInt("TOOL_MAX_ROUNDS", 8),
 		ToolMaxOutputBytes:    getenvInt("TOOL_MAX_OUTPUT_BYTES", 100_000),
 	}

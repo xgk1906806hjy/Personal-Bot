@@ -13,6 +13,10 @@ type Options struct {
 	CommandTimeout time.Duration
 	MaxOutputBytes int
 	EnableShell    bool
+	EnableWeb      bool
+	HTTPTimeout    time.Duration
+	// SearchEndpoint overrides DuckDuckGo HTML URL (tests).
+	SearchEndpoint string
 	Workdirs       WorkdirStore
 }
 
@@ -49,6 +53,11 @@ func NewRegistry(opts Options) (*Registry, error) {
 	r.Register(newSetWorkdirTool(paths))
 	if opts.EnableShell {
 		r.Register(newRunCommandTool(paths, opts.CommandTimeout, opts.MaxOutputBytes))
+	}
+	if opts.EnableWeb {
+		wh := newWebHTTP(opts.HTTPTimeout, opts.MaxOutputBytes, opts.SearchEndpoint)
+		r.Register(newWebSearchTool(wh))
+		r.Register(newFetchURLTool(wh))
 	}
 	return r, nil
 }

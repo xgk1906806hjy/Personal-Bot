@@ -20,6 +20,8 @@ func Create(cfg *config.Config, workdirs tools.WorkdirStore) (Channel, error) {
 				CommandTimeout: time.Duration(cfg.ToolCommandTimeoutSec) * time.Second,
 				MaxOutputBytes: cfg.ToolMaxOutputBytes,
 				EnableShell:    true,
+				EnableWeb:      cfg.WebToolsEnabled,
+				HTTPTimeout:    time.Duration(cfg.ToolHTTPTimeoutSec) * time.Second,
 				Workdirs:       workdirs,
 			})
 			if err != nil {
