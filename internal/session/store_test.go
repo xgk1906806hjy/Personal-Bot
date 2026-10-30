@@ -138,6 +138,25 @@ func TestMaybeCompress(t *testing.T) {
 	}
 }
 
+func TestUsageAndClear(t *testing.T) {
+	s := NewStore(2, 30, 16)
+	key := BuildKey(config.PlatformQQ, "c4", "u4")
+	s.AddUsage(key, 100, 50, 150, false)
+	s.AddUsage(key, 20, 10, 30, true)
+	view := s.ActiveSnapshot(key)
+	if view.ConvoUsage.TotalTokens != 180 || view.ConvoUsage.Calls != 2 {
+		t.Fatalf("convo usage: %+v", view.ConvoUsage)
+	}
+	if view.OwnerUsage.TotalTokens != 180 {
+		t.Fatalf("owner usage: %+v", view.OwnerUsage)
+	}
+	s.ClearUsage(key, false)
+	view = s.ActiveSnapshot(key)
+	if view.ConvoUsage.Calls != 0 || view.OwnerUsage.Calls != 0 {
+		t.Fatalf("after clear: convo=%+v owner=%+v", view.ConvoUsage, view.OwnerUsage)
+	}
+}
+
 func TestMaybeCompressFallback(t *testing.T) {
 	s := NewStore(2, 30, 16)
 	key := BuildKey(config.PlatformQQ, "c3", "u3")

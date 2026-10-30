@@ -24,10 +24,28 @@ type Request struct {
 	DisableTools bool
 }
 
+// TokenUsage is API-reported or estimated token counts for one Chat call.
+type TokenUsage struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+	Estimated        bool // true when not from API usage field
+}
+
+func (u TokenUsage) Add(other TokenUsage) TokenUsage {
+	return TokenUsage{
+		PromptTokens:     u.PromptTokens + other.PromptTokens,
+		CompletionTokens: u.CompletionTokens + other.CompletionTokens,
+		TotalTokens:      u.TotalTokens + other.TotalTokens,
+		Estimated:        u.Estimated || other.Estimated,
+	}
+}
+
 type Response struct {
 	Channel        config.ModelChannel
 	Text           string
 	ConversationID string
+	Usage          TokenUsage
 }
 
 // Channel is a pluggable model backend.

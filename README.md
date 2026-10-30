@@ -111,9 +111,16 @@ TOOL_MAX_OUTPUT_BYTES=100000
 | `/new [标题]` | 新建并切换 |
 | `/use N` | 切换到第 N 个 |
 | `/rename 标题` | 重命名当前 |
+| `/ctx` | 查看当前上下文（摘要截断） |
+| `/tokens` | 查看 token 消耗（当前会话 + 本用户合计） |
+| `/tokens clear` | 清空当前会话 token 统计 |
+| `/tokens clear all` | 清空本用户全部 token 统计 |
 | `/clear` | 清空当前上下文 |
+| `/clear tokens` | 同 `/tokens clear` |
 
 消息条数超过 `SESSION_COMPRESS_AFTER`（默认 30）时，自动把更早内容压成摘要，保留最近 `SESSION_KEEP_RECENT`（默认 16）条原文。
+
+`gateway_api` 优先用接口返回的 `usage`；`codex_local` 或无 usage 时按文本约估。
 
 ```env
 SESSION_TTL_HOURS=2

@@ -16,17 +16,53 @@ type Message struct {
 	Content string
 }
 
+// UsageStats accumulates API/estimated token counts.
+type UsageStats struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+	Calls            int
+	EstimatedCalls   int // how many calls used estimates instead of API usage
+	LastPrompt       int
+	LastCompletion   int
+	LastTotal        int
+	LastEstimated    bool
+}
+
+func (u *UsageStats) Add(prompt, completion, total int, estimated bool) {
+	if total == 0 {
+		total = prompt + completion
+	}
+	u.PromptTokens += prompt
+	u.CompletionTokens += completion
+	u.TotalTokens += total
+	u.Calls++
+	if estimated {
+		u.EstimatedCalls++
+	}
+	u.LastPrompt = prompt
+	u.LastCompletion = completion
+	u.LastTotal = total
+	u.LastEstimated = estimated
+}
+
+func (u *UsageStats) Clear() {
+	*u = UsageStats{}
+}
+
 type Conversation struct {
 	ID        string
 	Title     string
 	UpdatedAt time.Time
 	Messages  []Message
+	Usage     UsageStats
 }
 
 type ownerBag struct {
 	ActiveID      string
 	Conversations []*Conversation
 	UpdatedAt     time.Time
+	Usage         UsageStats // owner-wide across all conversations
 }
 
 // ListItem is a numbered view of one conversation for /list.
@@ -36,6 +72,18 @@ type ListItem struct {
 	Title  string
 	Active bool
 	Msgs   int
+}
+
+// ActiveView is a snapshot for /ctx and /tokens.
+type ActiveView struct {
+	Index        int
+	ID           string
+	Title        string
+	Messages     []Message
+	ConvoUsage   UsageStats
+	OwnerUsage   UsageStats
+	ContextChars int
+	ContextEst   int // estimated tokens for current context text
 }
 
 type Store struct {
@@ -251,4 +299,86 @@ func (s *Store) ClearActive(ownerKey string) ListItem {
 		}
 	}
 	return ListItem{Index: idx, ID: c.ID, Title: c.Title, Active: true, Msgs: 0}
+}
+
+// AddUsage records token usage on the active conversation and owner totals.
+func (s *Store) AddUsage(ownerKey string, prompt, completion, total int, estimated bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bag := s.getOrCreateLocked(ownerKey)
+	c := s.activeLocked(bag)
+	c.Usage.Add(prompt, completion, total, estimated)
+	bag.Usage.Add(prompt, completion, total, estimated)
+	c.UpdatedAt = time.Now()
+	bag.UpdatedAt = time.Now()
+}
+
+// ClearUsage resets token counters for the active conversation and subtracts from owner totals.
+// If all=true, clears every conversation and the owner total.
+func (s *Store) ClearUsage(ownerKey string, all bool) ActiveView {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bag := s.getOrCreateLocked(ownerKey)
+	if all {
+		for _, c := range bag.Conversations {
+			c.Usage.Clear()
+		}
+		bag.Usage.Clear()
+	} else {
+		c := s.activeLocked(bag)
+		// Rebuild owner totals from remaining conversations after clearing active.
+		c.Usage.Clear()
+		bag.Usage.Clear()
+		for _, x := range bag.Conversations {
+			if x.Usage.Calls == 0 {
+				continue
+			}
+			bag.Usage.PromptTokens += x.Usage.PromptTokens
+			bag.Usage.CompletionTokens += x.Usage.CompletionTokens
+			bag.Usage.TotalTokens += x.Usage.TotalTokens
+			bag.Usage.Calls += x.Usage.Calls
+			bag.Usage.EstimatedCalls += x.Usage.EstimatedCalls
+		}
+	}
+	return s.activeViewLocked(bag)
+}
+
+// ActiveSnapshot returns context + usage for the active conversation.
+func (s *Store) ActiveSnapshot(ownerKey string) ActiveView {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bag := s.getOrCreateLocked(ownerKey)
+	return s.activeViewLocked(bag)
+}
+
+func (s *Store) activeViewLocked(bag *ownerBag) ActiveView {
+	c := s.activeLocked(bag)
+	idx := 1
+	for i, x := range bag.Conversations {
+		if x.ID == c.ID {
+			idx = i + 1
+			break
+		}
+	}
+	msgs := make([]Message, len(c.Messages))
+	copy(msgs, c.Messages)
+	chars, est := contextSize(msgs)
+	return ActiveView{
+		Index:        idx,
+		ID:           c.ID,
+		Title:        c.Title,
+		Messages:     msgs,
+		ConvoUsage:   c.Usage,
+		OwnerUsage:   bag.Usage,
+		ContextChars: chars,
+		ContextEst:   est,
+	}
+}
+
+func contextSize(msgs []Message) (chars, estTokens int) {
+	for _, m := range msgs {
+		chars += len([]rune(m.Role)) + len([]rune(m.Content)) + 2
+	}
+	estTokens = chars // rune-based rough estimate
+	return chars, estTokens
 }

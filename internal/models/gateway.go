@@ -76,6 +76,7 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 	}
 
 	var finalText string
+	var usage TokenUsage
 	for round := 0; round < maxRounds; round++ {
 		body := map[string]any{
 			"model":       c.cfg.GatewayAPIModel,
@@ -91,6 +92,7 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 		if err != nil {
 			return Response{}, err
 		}
+		usage = usage.Add(rawResp.Usage.toTokenUsage())
 
 		msg := rawResp.Choices[0].Message
 		if len(msg.ToolCalls) == 0 {
@@ -132,7 +134,26 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 		Channel:        c.ID(),
 		Text:           finalText,
 		ConversationID: conversationID,
+		Usage:          usage,
 	}, nil
+}
+
+type apiUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
+func (u apiUsage) toTokenUsage() TokenUsage {
+	total := u.TotalTokens
+	if total == 0 {
+		total = u.PromptTokens + u.CompletionTokens
+	}
+	return TokenUsage{
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		TotalTokens:      total,
+	}
 }
 
 type chatCompletionResponse struct {
@@ -151,6 +172,7 @@ type chatCompletionResponse struct {
 			} `json:"tool_calls"`
 		} `json:"message"`
 	} `json:"choices"`
+	Usage apiUsage `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error"`

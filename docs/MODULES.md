@@ -192,7 +192,7 @@ QQ 开放平台机器人。
 3. 否则 `LoadActiveMessages` → `model.Chat(Messages + Prompt)`  
 4. `AppendTurn`；若条数 `> CompressAfter` → `MaybeCompress`（无 tool 摘要）
 
-**斜杠指令：** `/help` `/list` `/new [标题]` `/use N` `/rename 标题` `/clear`
+**斜杠指令：** `/help` `/list` `/new` `/use` `/rename` `/ctx` `/tokens` `/tokens clear` `/clear`
 
 **压缩 Summarizer：** 包内 `modelSummarizer`，对旧消息调用 `Chat(..., DisableTools: true)`。
 

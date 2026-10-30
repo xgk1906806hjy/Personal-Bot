@@ -21,7 +21,16 @@ func (f *fakeModel) Chat(req models.Request) (models.Response, error) {
 	if out == "" {
 		out = "ok:" + req.Prompt
 	}
-	return models.Response{Channel: f.ID(), Text: out, ConversationID: req.ConversationID}, nil
+	return models.Response{
+		Channel:        f.ID(),
+		Text:           out,
+		ConversationID: req.ConversationID,
+		Usage: models.TokenUsage{
+			PromptTokens:     10,
+			CompletionTokens: 5,
+			TotalTokens:      15,
+		},
+	}, nil
 }
 
 func TestSlashCommands(t *testing.T) {
@@ -55,5 +64,24 @@ func TestSlashCommands(t *testing.T) {
 	reply, err = o.Handle(IncomingUserMessage{Platform: config.PlatformQQ, ChatID: "c", UserID: "u", Text: "/list"})
 	if err != nil || !strings.Contains(reply, "项目A") {
 		t.Fatalf("list: %q", reply)
+	}
+
+	reply, err = o.Handle(IncomingUserMessage{Platform: config.PlatformQQ, ChatID: "c", UserID: "u", Text: "/ctx"})
+	if err != nil || !strings.Contains(reply, "你好") || !strings.Contains(reply, "项目A") {
+		t.Fatalf("ctx: %q err=%v", reply, err)
+	}
+
+	reply, err = o.Handle(IncomingUserMessage{Platform: config.PlatformQQ, ChatID: "c", UserID: "u", Text: "/tokens"})
+	if err != nil || !strings.Contains(reply, "合计 15") {
+		t.Fatalf("tokens: %q err=%v", reply, err)
+	}
+
+	reply, err = o.Handle(IncomingUserMessage{Platform: config.PlatformQQ, ChatID: "c", UserID: "u", Text: "/tokens clear"})
+	if err != nil || !strings.Contains(reply, "已清空") {
+		t.Fatalf("tokens clear: %q err=%v", reply, err)
+	}
+	reply, err = o.Handle(IncomingUserMessage{Platform: config.PlatformQQ, ChatID: "c", UserID: "u", Text: "/tokens"})
+	if err != nil || !strings.Contains(reply, "调用 0 次") {
+		t.Fatalf("tokens after clear: %q", reply)
 	}
 }

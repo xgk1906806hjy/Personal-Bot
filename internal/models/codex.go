@@ -69,6 +69,7 @@ func (c *CodexLocalChannel) Chat(req Request) (Response, error) {
 		Channel:        c.ID(),
 		Text:           out,
 		ConversationID: conversationID,
+		Usage:          EstimateUsage(prompt, out),
 	}, nil
 }
 
