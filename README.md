@@ -1,9 +1,12 @@
 # Personal Bot
 
-A **personal exclusive** chat assistant you run yourself: pluggable messaging fronts + pluggable model backends.
+A **personal exclusive** chat assistant you run yourself.
+
+**Active runtime: Go.**  
+Previous Node/TypeScript code is under `legacy/node/`.
 
 ```
-QQ / Feishu / WeChat          codex_local / gateway_api / …
+QQ / Feishu / WeChat          gateway_api / codex_local
         │                              │
         ▼                              ▼
   MessagingAdapter               ModelChannel
@@ -11,122 +14,96 @@ QQ / Feishu / WeChat          codex_local / gateway_api / …
         └──────────► Orchestrator ◄────┘
 ```
 
-Built for one owner (you): talk to your bot on QQ (or later Feishu/WeChat), backed by your own model gateway or local Codex.
+## Status (Go)
 
-## Status
+| Layer | Ready | Notes |
+|-------|-------|-------|
+| Messaging | `qq` (WebSocket + Webhook), `feishu` (Webhook) | `wechat` placeholder (Mount errors until implemented) |
+| Models | `gateway_api`, `codex_local` | Codex shells out to local `codex` CLI |
 
-| Layer | Ready | Planned |
-|-------|-------|---------|
-| Messaging | `qq` (WebSocket + Webhook), `feishu` | `wechat` |
-| Models | `gateway_api`, `codex_local` | add factories in `models/registry.ts` |
-
-Default path today: **QQ WebSocket** — no public domain or server required.
-
-## Quick start (QQ WebSocket)
+## Quick start
 
 ```bash
-cd E:\workspace\feishu-codex-bot
-npm install
+go mod tidy
 copy .env.example .env
-# Fill QQ_APP_ID / QQ_APP_SECRET and model gateway settings
-npm run dev
+# fill credentials
+go run ./cmd/personal-bot
 ```
 
-When you see `[qq:ws] READY`, the bot is online. Keep the process running.
+Build:
 
-Health check: `GET http://127.0.0.1:8787/healthz`
+```bash
+go build -o bin/personal-bot.exe ./cmd/personal-bot
+.\bin\personal-bot.exe
+```
 
-### Minimal `.env`
+Health: `GET http://127.0.0.1:8787/healthz`
+
+### QQ (recommended WebSocket)
 
 ```env
 MESSAGING_CHANNELS=qq
 QQ_TRANSPORT=websocket
-QQ_APP_ID=your_app_id
-QQ_APP_SECRET=your_app_secret
-QQ_API_BASE_URL=https://api.bot.qq.com
-
-MODEL_CHANNEL=gateway_api
-GATEWAY_API_BASE_URL=https://your-gateway/v1
-GATEWAY_API_KEY=sk-xxx
-GATEWAY_API_MODEL=your-model
-
-BOT_SYSTEM_PROMPT=You are my personal assistant. Be concise, practical, and honest when unsure.
+QQ_APP_ID=...
+QQ_APP_SECRET=...
 ```
 
-1. Create a bot at [QQ Open Platform](https://q.qq.com/).
-2. Choose **WebSocket** as the event transport.
-3. Add the bot to your chat / group, then `@bot` with a message.
-
-## Architecture
-
-- **MessagingAdapter** — platform webhooks / sockets → normalized `IncomingUserMessage`
-- **Orchestrator** — session mapping `{platform}:{chatId}:{userId}` → model call
-- **ModelChannel** — `gateway_api` (OpenAI-compatible) or `codex_local` (`@openai/codex-sdk`)
-
-Swap either side via env without rewriting the core loop.
-
-### Messaging
+Webhook / both:
 
 ```env
-MESSAGING_CHANNELS=qq
-# Feishu: MESSAGING_CHANNELS=feishu
-# Both:   MESSAGING_CHANNELS=qq,feishu
+QQ_TRANSPORT=webhook
+# or QQ_TRANSPORT=both
+# callback: https://your-host/qq/webhook  (ports 80/443/8080/8443)
 ```
 
-QQ transport:
+### Feishu
 
 ```env
-QQ_TRANSPORT=websocket   # default — no public URL
-# QQ_TRANSPORT=webhook   # needs HTTPS on 80/443/8080/8443 → /qq/webhook
-# QQ_TRANSPORT=both
+MESSAGING_CHANNELS=feishu
+# or MESSAGING_CHANNELS=qq,feishu
+FEISHU_APP_ID=...
+FEISHU_APP_SECRET=...
+FEISHU_VERIFICATION_TOKEN=...
+FEISHU_ENCRYPT_KEY=...
+# callback: https://your-host/feishu/webhook
 ```
 
 ### Models
 
 ```env
 MODEL_CHANNEL=gateway_api
+GATEWAY_API_BASE_URL=https://your-gateway/v1
+GATEWAY_API_KEY=sk-xxx
+GATEWAY_API_MODEL=your-model
 
 # or local Codex CLI
 MODEL_CHANNEL=codex_local
 CODEX_WORKING_DIRECTORY=E:\path\to\repo
+# CODEX_BIN=codex
 ```
 
-## Project layout
+## Layout
 
 ```
-src/
-  index.ts                 # boot
-  config.ts                # env
-  orchestrator.ts          # platform-agnostic brain
-  http/app.ts              # health + adapter mounts
-  session/store.ts         # in-memory sessions
+cmd/personal-bot/main.go
+internal/
+  config/
+  httpapi/
+  orchestrator/
+  session/
+  app/                 # adapter wiring
   messaging/
-    types.ts
-    registry.ts
-    adapters/
-      qq/                  # WebSocket + Webhook
-      feishu/
-      wechat/              # stub
+    qq/                # WS + Webhook + Ed25519
+    feishu/            # Webhook + reply API
+    wechat/            # placeholder
   models/
-    types.ts
-    registry.ts
-    channels/
-      gateway-api.ts
-      codex-local.ts
+    gateway.go
+    codex.go           # `codex exec` subprocess
+legacy/node/
 ```
-
-## Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Dev server with reload (`tsx watch`) |
-| `npm start` | Run once |
-| `npm run typecheck` | TypeScript check |
-| `npm run build` | Emit `dist/` |
 
 ## Notes
 
-- Replies are English by default (ack → answer). Change `BOT_SYSTEM_PROMPT` to reshape personality.
-- QQ passive replies are time-windowed; the bot ACKs “Got it — thinking…” then sends the final answer.
-- Secrets stay in `.env` (gitignored). Rotate keys if they were ever pasted into chat.
-- Tooling (device logs, repo tools, owner allowlists) can be layered on the Orchestrator / model channels next.
+- Chat-only by default; `codex_local` can use the Codex CLI sandbox in its working directory.
+- WeChat adapter is intentionally not ready — selecting it will fail at Mount with a clear error.
+- Secrets stay in `.env` (gitignored).

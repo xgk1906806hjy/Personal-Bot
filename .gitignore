@@ -6,3 +6,11 @@ dist/
 .DS_Store
 .codex-sessions/
 tmp/
+
+# Go
+bin/
+dist-go/
+*.exe
+*.test
+*.out
+vendor/
