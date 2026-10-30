@@ -28,8 +28,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("[boot] model: %v", err)
 	}
-	sessions := session.NewStore(cfg.SessionTTLHours)
+	sessions := session.NewStore(cfg.SessionTTLHours, cfg.SessionCompressAfter, cfg.SessionKeepRecent)
 	orch := orchestrator.New(cfg, model, sessions)
+	log.Printf("[boot] sessions multi-convo compress_after=%d keep_recent=%d ttl_h=%d",
+		cfg.SessionCompressAfter, cfg.SessionKeepRecent, cfg.SessionTTLHours)
 
 	adapters, err := app.CreateMessagingAdapters(cfg.MessagingChannels)
 	if err != nil {

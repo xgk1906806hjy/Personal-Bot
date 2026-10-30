@@ -20,6 +20,8 @@ type Request struct {
 	ConversationID string
 	Messages       []ChatMessage
 	Prompt         string
+	// DisableTools skips tool binding (used for session compression summaries).
+	DisableTools bool
 }
 
 type Response struct {

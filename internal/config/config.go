@@ -53,8 +53,10 @@ type Config struct {
 	GatewayAPIExtraHeaderName  string
 	GatewayAPIExtraHeaderValue string
 
-	SessionTTLHours int
-	BotSystemPrompt string
+	SessionTTLHours      int
+	SessionCompressAfter int
+	SessionKeepRecent    int
+	BotSystemPrompt      string
 
 	ToolsEnabled          bool
 	ToolWorkspace         string
@@ -85,7 +87,9 @@ func Load() (*Config, error) {
 		GatewayAPIModel:            getenv("GATEWAY_API_MODEL", "gpt-4o-mini"),
 		GatewayAPIExtraHeaderName:  os.Getenv("GATEWAY_API_EXTRA_HEADER_NAME"),
 		GatewayAPIExtraHeaderValue: os.Getenv("GATEWAY_API_EXTRA_HEADER_VALUE"),
-		SessionTTLHours:            getenvInt("SESSION_TTL_HOURS", 2),
+		SessionTTLHours:      getenvInt("SESSION_TTL_HOURS", 2),
+		SessionCompressAfter: getenvInt("SESSION_COMPRESS_AFTER", 30),
+		SessionKeepRecent:    getenvInt("SESSION_KEEP_RECENT", 16),
 		BotSystemPrompt: getenv(
 			"BOT_SYSTEM_PROMPT",
 			"You are my personal exclusive assistant. Be concise, practical, and clear. If you are unsure, say what is missing instead of guessing.",

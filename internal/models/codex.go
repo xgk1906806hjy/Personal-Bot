@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/xgk1906806hjy/Personal-Bot/internal/config"
@@ -15,16 +14,10 @@ import (
 // Requires Codex CLI installed and authenticated on this machine.
 type CodexLocalChannel struct {
 	cfg *config.Config
-
-	mu        sync.Mutex
-	histories map[string][]ChatMessage
 }
 
 func newCodexLocalChannel(cfg *config.Config) *CodexLocalChannel {
-	return &CodexLocalChannel{
-		cfg:       cfg,
-		histories: make(map[string][]ChatMessage),
-	}
+	return &CodexLocalChannel{cfg: cfg}
 }
 
 func (c *CodexLocalChannel) ID() config.ModelChannel { return config.ModelCodexLocal }
@@ -35,17 +28,12 @@ func (c *CodexLocalChannel) Chat(req Request) (Response, error) {
 		conversationID = req.SessionKey
 	}
 
-	c.mu.Lock()
-	history := append([]ChatMessage{}, c.histories[conversationID]...)
-	c.mu.Unlock()
-
-	prompt := c.buildPrompt(req, history)
+	prompt := c.buildPrompt(req)
 	bin := c.cfg.CodexBin
 	if bin == "" {
 		bin = "codex"
 	}
 
-	// Non-interactive one-shot. History is embedded in the prompt for multi-turn.
 	cmd := exec.Command(bin, "exec", "--skip-git-repo-check", prompt)
 	cmd.Dir = c.cfg.CodexWorkingDirectory
 	var stdout, stderr bytes.Buffer
@@ -77,17 +65,6 @@ func (c *CodexLocalChannel) Chat(req Request) (Response, error) {
 		out = "(Codex returned empty response)"
 	}
 
-	c.mu.Lock()
-	history = append(history,
-		ChatMessage{Role: RoleUser, Content: req.Prompt},
-		ChatMessage{Role: RoleAssistant, Content: out},
-	)
-	if len(history) > 20 {
-		history = history[len(history)-20:]
-	}
-	c.histories[conversationID] = history
-	c.mu.Unlock()
-
 	return Response{
 		Channel:        c.ID(),
 		Text:           out,
@@ -95,18 +72,20 @@ func (c *CodexLocalChannel) Chat(req Request) (Response, error) {
 	}, nil
 }
 
-func (c *CodexLocalChannel) buildPrompt(req Request, history []ChatMessage) string {
+func (c *CodexLocalChannel) buildPrompt(req Request) string {
 	var b strings.Builder
 	b.WriteString(c.cfg.BotSystemPrompt)
 	b.WriteString("\n\nConversation context (if any). Answer the latest user message.\n")
-	if len(history) == 0 {
+	if len(req.Messages) == 0 {
 		b.WriteString("User: ")
 		b.WriteString(req.Prompt)
 	} else {
-		for _, m := range history {
+		for _, m := range req.Messages {
 			switch m.Role {
 			case RoleUser:
 				b.WriteString("User: ")
+			case RoleSystem:
+				b.WriteString("System: ")
 			default:
 				b.WriteString("Assistant: ")
 			}

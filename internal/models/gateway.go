@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/xgk1906806hjy/Personal-Bot/internal/config"
@@ -20,17 +19,13 @@ type gatewayChannel struct {
 	cfg    *config.Config
 	client *http.Client
 	tools  *tools.Registry
-
-	mu        sync.Mutex
-	histories map[string][]map[string]any
 }
 
 func newGatewayChannel(cfg *config.Config, registry *tools.Registry) *gatewayChannel {
 	return &gatewayChannel{
-		cfg:       cfg,
-		client:    &http.Client{Timeout: 180 * time.Second},
-		tools:     registry,
-		histories: make(map[string][]map[string]any),
+		cfg:    cfg,
+		client: &http.Client{Timeout: 180 * time.Second},
+		tools:  registry,
 	}
 }
 
@@ -42,24 +37,30 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 		conversationID = req.SessionKey
 	}
 
-	c.mu.Lock()
-	history := append([]map[string]any{}, c.histories[conversationID]...)
-	c.mu.Unlock()
-
 	systemPrompt := c.cfg.BotSystemPrompt
-	if c.tools != nil && c.cfg.ToolsEnabled {
+	useTools := !req.DisableTools && c.tools != nil && c.cfg.ToolsEnabled
+	if useTools {
 		systemPrompt += "\n\nYou can use tools to read/write files and run shell commands inside the workspace (" +
 			c.tools.WorkspaceRoot() +
 			"). Prefer tools for file and command tasks. Available tools: " +
 			strings.Join(c.tools.ToolNames(), ", ") + "."
 	}
 
-	messages := make([]map[string]any, 0, len(history)+2)
+	messages := make([]map[string]any, 0, len(req.Messages)+2)
 	messages = append(messages, map[string]any{
 		"role":    "system",
 		"content": systemPrompt,
 	})
-	messages = append(messages, history...)
+	for _, m := range req.Messages {
+		role := string(m.Role)
+		if role == "" {
+			role = "user"
+		}
+		messages = append(messages, map[string]any{
+			"role":    role,
+			"content": m.Content,
+		})
+	}
 	messages = append(messages, map[string]any{
 		"role":    "user",
 		"content": req.Prompt,
@@ -70,6 +71,9 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 	if maxRounds <= 0 {
 		maxRounds = 8
 	}
+	if !useTools {
+		maxRounds = 1
+	}
 
 	var finalText string
 	for round := 0; round < maxRounds; round++ {
@@ -78,7 +82,7 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 			"messages":    messages,
 			"temperature": 0.2,
 		}
-		if c.tools != nil && c.cfg.ToolsEnabled {
+		if useTools {
 			body["tools"] = c.tools.OpenAITools()
 			body["tool_choice"] = "auto"
 		}
@@ -97,7 +101,6 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 			break
 		}
 
-		// Append assistant tool-call message.
 		assistantMsg := map[string]any{
 			"role":       "assistant",
 			"content":    msg.Content,
@@ -124,17 +127,6 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 	if finalText == "" {
 		return Response{}, fmt.Errorf("tool loop exceeded max rounds (%d) without a final answer", maxRounds)
 	}
-
-	c.mu.Lock()
-	history = append(history,
-		map[string]any{"role": "user", "content": req.Prompt},
-		map[string]any{"role": "assistant", "content": finalText},
-	)
-	if len(history) > 20 {
-		history = history[len(history)-20:]
-	}
-	c.histories[conversationID] = history
-	c.mu.Unlock()
 
 	return Response{
 		Channel:        c.ID(),

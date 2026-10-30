@@ -14,6 +14,8 @@ QQ / 飞书 / 微信          gateway_api / codex_local
         └──────────► Orchestrator ◄────┘
 ```
 
+端到端总体流程图（启动 → 消息 → 会话/工具/压缩 → 回复）见 **[docs/MODULES.md §1.1](docs/MODULES.md#11-总体流程图)**。
+
 ## 现状（Go）
 
 | 层 | 已就绪 | 说明 |
@@ -96,10 +98,34 @@ TOOL_MAX_OUTPUT_BYTES=100000
 内置工具：`read_file`、`write_file`、`list_dir`、`run_command`。  
 文件路径与命令工作目录都限制在 `TOOL_WORKSPACE`（默认取 `CODEX_WORKING_DIRECTORY`，否则为进程当前目录）。
 
+### 多会话与上下文压缩
+
+按 `平台:聊天:用户` 隔离；每人最多 10 个会话，内存存储（进程重启清空）。TTL 默认 2 小时（`SESSION_TTL_HOURS`）。
+
+斜杠指令（群里需 @ 机器人）：
+
+| 指令 | 说明 |
+|------|------|
+| `/help` | 帮助 |
+| `/list` | 列出会话（`*` 为当前） |
+| `/new [标题]` | 新建并切换 |
+| `/use N` | 切换到第 N 个 |
+| `/rename 标题` | 重命名当前 |
+| `/clear` | 清空当前上下文 |
+
+消息条数超过 `SESSION_COMPRESS_AFTER`（默认 30）时，自动把更早内容压成摘要，保留最近 `SESSION_KEEP_RECENT`（默认 16）条原文。
+
+```env
+SESSION_TTL_HOURS=2
+SESSION_COMPRESS_AFTER=30
+SESSION_KEEP_RECENT=16
+```
+
 ## 目录结构
 
 ```
 cmd/personal-bot/main.go
+docs/MODULES.md        # 各模块细节说明
 internal/
   config/
   httpapi/
@@ -116,6 +142,8 @@ internal/
     codex.go           # `codex exec` 子进程
 legacy/node/
 ```
+
+模块职责、数据流与扩展点见 **[docs/MODULES.md](docs/MODULES.md)**。
 
 ## 说明
 
