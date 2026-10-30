@@ -3,24 +3,27 @@ package tools
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestWorkspaceRejectsEscape(t *testing.T) {
+func TestWorkspaceAllowsAbsoluteOutsideRoot(t *testing.T) {
 	root := t.TempDir()
+	other := t.TempDir()
 	ws, err := NewWorkspace(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ws.Resolve("../outside.txt"); err == nil {
-		t.Fatal("expected escape to fail")
+	got, err := ws.ResolveFrom(root, other)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := ws.Resolve(".."); err == nil {
-		t.Fatal("expected .. to fail")
+	if filepath.Clean(got) != filepath.Clean(other) {
+		t.Fatalf("got %s want %s", got, other)
 	}
 }
 
-func TestWorkspaceAllowsRelativeInside(t *testing.T) {
+func TestWorkspaceRelativeFromBase(t *testing.T) {
 	root := t.TempDir()
 	ws, err := NewWorkspace(root)
 	if err != nil {
@@ -50,7 +53,7 @@ func TestReadWriteListRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := reg.ToolNames()
-	want := map[string]bool{"read_file": true, "write_file": true, "list_dir": true}
+	want := map[string]bool{"read_file": true, "write_file": true, "list_dir": true, "get_workdir": true, "set_workdir": true}
 	for _, n := range names {
 		delete(want, n)
 	}
@@ -80,7 +83,7 @@ func TestReadWriteListRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if listing != "hello.txt" {
+	if !strings.Contains(listing, "hello.txt") {
 		t.Fatalf("list=%q", listing)
 	}
 }

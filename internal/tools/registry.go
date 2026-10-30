@@ -9,10 +9,11 @@ import (
 )
 
 type Options struct {
-	Workspace         string
-	CommandTimeout    time.Duration
-	MaxOutputBytes    int
-	EnableShell       bool
+	Workspace      string
+	CommandTimeout time.Duration
+	MaxOutputBytes int
+	EnableShell    bool
+	Workdirs       WorkdirStore
 }
 
 type Registry struct {
@@ -20,6 +21,7 @@ type Registry struct {
 	tools map[string]Tool
 	ws    *Workspace
 	opts  Options
+	paths *pathResolver
 }
 
 func NewRegistry(opts Options) (*Registry, error) {
@@ -33,16 +35,20 @@ func NewRegistry(opts Options) (*Registry, error) {
 	if err != nil {
 		return nil, err
 	}
+	paths := &pathResolver{ws: ws, store: opts.Workdirs}
 	r := &Registry{
 		tools: make(map[string]Tool),
 		ws:    ws,
 		opts:  opts,
+		paths: paths,
 	}
-	r.Register(newReadFileTool(ws, opts.MaxOutputBytes))
-	r.Register(newWriteFileTool(ws))
-	r.Register(newListDirTool(ws))
+	r.Register(newReadFileTool(paths, opts.MaxOutputBytes))
+	r.Register(newWriteFileTool(paths))
+	r.Register(newListDirTool(paths))
+	r.Register(newGetWorkdirTool(paths))
+	r.Register(newSetWorkdirTool(paths))
 	if opts.EnableShell {
-		r.Register(newRunCommandTool(ws, opts.CommandTimeout, opts.MaxOutputBytes))
+		r.Register(newRunCommandTool(paths, opts.CommandTimeout, opts.MaxOutputBytes))
 	}
 	return r, nil
 }

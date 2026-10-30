@@ -1,12 +1,13 @@
 package tools
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 )
 
-// Workspace confines file operations under Root.
+// Workspace holds the default starting directory (TOOL_WORKSPACE).
+// Session workdirs may point anywhere on the machine; relative paths resolve
+// from the current workdir with no root jail.
 type Workspace struct {
 	Root string
 }
@@ -18,7 +19,6 @@ func NewWorkspace(root string) (*Workspace, error) {
 	}
 	abs, err = filepath.EvalSymlinks(abs)
 	if err != nil {
-		// Root may not exist yet; keep abs without symlink resolve.
 		abs, err = filepath.Abs(root)
 		if err != nil {
 			return nil, err
@@ -27,34 +27,28 @@ func NewWorkspace(root string) (*Workspace, error) {
 	return &Workspace{Root: abs}, nil
 }
 
-// Resolve joins rel under root and rejects path escape.
+// Resolve joins rel under the default root.
 func (w *Workspace) Resolve(rel string) (string, error) {
+	return w.ResolveFrom(w.Root, rel)
+}
+
+// ResolveFrom joins rel under base, or accepts an absolute path as-is.
+// No confinement to TOOL_WORKSPACE — any reachable path is allowed.
+func (w *Workspace) ResolveFrom(base, rel string) (string, error) {
 	if rel == "" {
 		rel = "."
 	}
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = w.Root
+	}
+	base = filepath.Clean(base)
 	cleaned := filepath.Clean(rel)
+	var target string
 	if filepath.IsAbs(cleaned) {
-		// Allow absolute only if still inside root.
-		target := filepath.Clean(cleaned)
-		return w.ensureInside(target)
+		target = cleaned
+	} else {
+		target = filepath.Join(base, cleaned)
 	}
-	target := filepath.Join(w.Root, cleaned)
-	return w.ensureInside(target)
-}
-
-func (w *Workspace) ensureInside(target string) (string, error) {
-	absTarget, err := filepath.Abs(target)
-	if err != nil {
-		return "", err
-	}
-	root := filepath.Clean(w.Root)
-	// Use Rel to detect escape; if Rel starts with .. then outside.
-	rel, err := filepath.Rel(root, absTarget)
-	if err != nil {
-		return "", err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path escapes tool workspace: %s", target)
-	}
-	return absTarget, nil
+	return filepath.Abs(target)
 }

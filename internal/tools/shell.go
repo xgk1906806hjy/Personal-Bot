@@ -11,18 +11,18 @@ import (
 )
 
 type runCommandTool struct {
-	ws       *Workspace
+	r        *pathResolver
 	timeout  time.Duration
 	maxBytes int
 }
 
-func newRunCommandTool(ws *Workspace, timeout time.Duration, maxBytes int) *runCommandTool {
-	return &runCommandTool{ws: ws, timeout: timeout, maxBytes: maxBytes}
+func newRunCommandTool(r *pathResolver, timeout time.Duration, maxBytes int) *runCommandTool {
+	return &runCommandTool{r: r, timeout: timeout, maxBytes: maxBytes}
 }
 
 func (t *runCommandTool) Name() string { return "run_command" }
 func (t *runCommandTool) Description() string {
-	return "Run a shell command with cwd set to the tool workspace. Prefer non-interactive commands. Output is truncated."
+	return "Run a shell command with cwd set to the current workdir (see get_workdir). Prefer non-interactive commands. Output is truncated."
 }
 func (t *runCommandTool) Parameters() map[string]any {
 	return map[string]any{
@@ -49,6 +49,7 @@ func (t *runCommandTool) Execute(ctx context.Context, argsJSON string) (string, 
 		return "", fmt.Errorf("command is required")
 	}
 
+	cwd := t.r.cwd(ctx)
 	ctx, cancel := context.WithTimeout(ctx, t.timeout)
 	defer cancel()
 
@@ -58,7 +59,7 @@ func (t *runCommandTool) Execute(ctx context.Context, argsJSON string) (string, 
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", args.Command)
 	}
-	cmd.Dir = t.ws.Root
+	cmd.Dir = cwd
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -71,7 +72,7 @@ func (t *runCommandTool) Execute(ctx context.Context, argsJSON string) (string, 
 		"exit_code": 0,
 		"stdout":    string(out),
 		"stderr":    string(errOut),
-		"cwd":       t.ws.Root,
+		"cwd":       cwd,
 	}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

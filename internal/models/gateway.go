@@ -40,10 +40,12 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 	systemPrompt := c.cfg.BotSystemPrompt
 	useTools := !req.DisableTools && c.tools != nil && c.cfg.ToolsEnabled
 	if useTools {
-		systemPrompt += "\n\nYou can use tools to read/write files and run shell commands inside the workspace (" +
+		systemPrompt += "\n\nYou can use tools on this machine. Default start dir is (" +
 			c.tools.WorkspaceRoot() +
-			"). Prefer tools for file and command tasks. Available tools: " +
-			strings.Join(c.tools.ToolNames(), ", ") + "."
+			"), but set_workdir may switch to ANY absolute path (any drive). " +
+			"When the user asks to open/switch a project: list_dir / set_workdir with the full path, then confirm. " +
+			"get_workdir shows the current directory. File/command tools and later /cursor use that workdir. " +
+			"Available tools: " + strings.Join(c.tools.ToolNames(), ", ") + "."
 	}
 
 	messages := make([]map[string]any, 0, len(req.Messages)+2)
@@ -67,6 +69,9 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 	})
 
 	ctx := context.Background()
+	if req.SessionKey != "" {
+		ctx = tools.WithSessionKey(ctx, req.SessionKey)
+	}
 	maxRounds := c.cfg.ToolMaxRounds
 	if maxRounds <= 0 {
 		maxRounds = 8

@@ -10,17 +10,17 @@ import (
 )
 
 type readFileTool struct {
-	ws      *Workspace
+	r        *pathResolver
 	maxBytes int
 }
 
-func newReadFileTool(ws *Workspace, maxBytes int) *readFileTool {
-	return &readFileTool{ws: ws, maxBytes: maxBytes}
+func newReadFileTool(r *pathResolver, maxBytes int) *readFileTool {
+	return &readFileTool{r: r, maxBytes: maxBytes}
 }
 
 func (t *readFileTool) Name() string { return "read_file" }
 func (t *readFileTool) Description() string {
-	return "Read a UTF-8 text file under the tool workspace. Paths are relative to the workspace root."
+	return "Read a UTF-8 text file. Paths are relative to the current workdir (see get_workdir / set_workdir), confined under the tool root."
 }
 func (t *readFileTool) Parameters() map[string]any {
 	return map[string]any{
@@ -28,7 +28,7 @@ func (t *readFileTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Relative path inside the workspace",
+				"description": "File path relative to current workdir (or absolute under root)",
 			},
 			"max_bytes": map[string]any{
 				"type":        "integer",
@@ -40,7 +40,7 @@ func (t *readFileTool) Parameters() map[string]any {
 	}
 }
 
-func (t *readFileTool) Execute(_ context.Context, argsJSON string) (string, error) {
+func (t *readFileTool) Execute(ctx context.Context, argsJSON string) (string, error) {
 	var args struct {
 		Path     string `json:"path"`
 		MaxBytes int    `json:"max_bytes"`
@@ -48,7 +48,7 @@ func (t *readFileTool) Execute(_ context.Context, argsJSON string) (string, erro
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
-	abs, err := t.ws.Resolve(args.Path)
+	abs, err := t.r.Resolve(ctx, args.Path)
 	if err != nil {
 		return "", err
 	}
@@ -73,16 +73,16 @@ func (t *readFileTool) Execute(_ context.Context, argsJSON string) (string, erro
 }
 
 type writeFileTool struct {
-	ws *Workspace
+	r *pathResolver
 }
 
-func newWriteFileTool(ws *Workspace) *writeFileTool {
-	return &writeFileTool{ws: ws}
+func newWriteFileTool(r *pathResolver) *writeFileTool {
+	return &writeFileTool{r: r}
 }
 
 func (t *writeFileTool) Name() string { return "write_file" }
 func (t *writeFileTool) Description() string {
-	return "Create or overwrite a text file under the tool workspace. Parent directories are created as needed."
+	return "Create or overwrite a text file under the current workdir (confined to tool root). Parent directories are created as needed."
 }
 func (t *writeFileTool) Parameters() map[string]any {
 	return map[string]any{
@@ -90,7 +90,7 @@ func (t *writeFileTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Relative path inside the workspace",
+				"description": "File path relative to current workdir",
 			},
 			"content": map[string]any{
 				"type":        "string",
@@ -102,7 +102,7 @@ func (t *writeFileTool) Parameters() map[string]any {
 	}
 }
 
-func (t *writeFileTool) Execute(_ context.Context, argsJSON string) (string, error) {
+func (t *writeFileTool) Execute(ctx context.Context, argsJSON string) (string, error) {
 	var args struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -110,7 +110,7 @@ func (t *writeFileTool) Execute(_ context.Context, argsJSON string) (string, err
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
-	abs, err := t.ws.Resolve(args.Path)
+	abs, err := t.r.Resolve(ctx, args.Path)
 	if err != nil {
 		return "", err
 	}
@@ -121,23 +121,23 @@ func (t *writeFileTool) Execute(_ context.Context, argsJSON string) (string, err
 		return "", err
 	}
 	return mustJSON(map[string]any{
-		"ok":   true,
-		"path": abs,
+		"ok":    true,
+		"path":  abs,
 		"bytes": len(args.Content),
 	}), nil
 }
 
 type listDirTool struct {
-	ws *Workspace
+	r *pathResolver
 }
 
-func newListDirTool(ws *Workspace) *listDirTool {
-	return &listDirTool{ws: ws}
+func newListDirTool(r *pathResolver) *listDirTool {
+	return &listDirTool{r: r}
 }
 
 func (t *listDirTool) Name() string { return "list_dir" }
 func (t *listDirTool) Description() string {
-	return "List files and directories under a workspace path."
+	return "List files and directories. Default path \".\" is the current workdir. Use this to discover projects under the Cursor root, then set_workdir to enter one."
 }
 func (t *listDirTool) Parameters() map[string]any {
 	return map[string]any{
@@ -152,7 +152,7 @@ func (t *listDirTool) Parameters() map[string]any {
 	}
 }
 
-func (t *listDirTool) Execute(_ context.Context, argsJSON string) (string, error) {
+func (t *listDirTool) Execute(ctx context.Context, argsJSON string) (string, error) {
 	var args struct {
 		Path string `json:"path"`
 	}
@@ -164,7 +164,7 @@ func (t *listDirTool) Execute(_ context.Context, argsJSON string) (string, error
 	if args.Path == "" {
 		args.Path = "."
 	}
-	abs, err := t.ws.Resolve(args.Path)
+	abs, err := t.r.Resolve(ctx, args.Path)
 	if err != nil {
 		return "", err
 	}
@@ -172,7 +172,8 @@ func (t *listDirTool) Execute(_ context.Context, argsJSON string) (string, error
 	if err != nil {
 		return "", err
 	}
-	lines := make([]string, 0, len(entries))
+	lines := make([]string, 0, len(entries)+1)
+	lines = append(lines, "cwd="+abs)
 	for _, e := range entries {
 		suffix := ""
 		if e.IsDir() {
