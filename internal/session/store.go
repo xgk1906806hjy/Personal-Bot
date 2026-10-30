@@ -51,11 +51,14 @@ func (u *UsageStats) Clear() {
 }
 
 type Conversation struct {
-	ID        string
-	Title     string
-	UpdatedAt time.Time
-	Messages  []Message
-	Usage     UsageStats
+	ID            string
+	Title         string
+	UpdatedAt     time.Time
+	Messages      []Message
+	Usage         UsageStats
+	CursorAgentID string // Cursor SDK local agent id for resume
+	Workspace     string // optional override of TOOL_WORKSPACE for Cursor
+	CursorMode    bool   // /cursor entered: normal messages route to Cursor
 }
 
 type ownerBag struct {
@@ -84,6 +87,8 @@ type ActiveView struct {
 	OwnerUsage   UsageStats
 	ContextChars int
 	ContextEst   int // estimated tokens for current context text
+	Workspace    string
+	CursorMode   bool
 }
 
 type Store struct {
@@ -178,6 +183,103 @@ func (s *Store) LoadActiveMessages(ownerKey string) (conversationID string, msgs
 	out := make([]Message, len(c.Messages))
 	copy(out, c.Messages)
 	return c.ID, out
+}
+
+// LoadActiveCursorAgentID returns the Cursor agent id bound to the active conversation.
+func (s *Store) LoadActiveCursorAgentID(ownerKey string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bag := s.getOrCreateLocked(ownerKey)
+	c := s.activeLocked(bag)
+	return c.CursorAgentID
+}
+
+// SetCursorAgentID stores a Cursor agent id on the active conversation.
+func (s *Store) SetCursorAgentID(ownerKey, agentID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bag := s.getOrCreateLocked(ownerKey)
+	c := s.activeLocked(bag)
+	c.CursorAgentID = strings.TrimSpace(agentID)
+	c.UpdatedAt = time.Now()
+	bag.UpdatedAt = time.Now()
+}
+
+// IsCursorMode reports whether the active conversation is in Cursor mode.
+func (s *Store) IsCursorMode(ownerKey string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bag := s.getOrCreateLocked(ownerKey)
+	c := s.activeLocked(bag)
+	return c.CursorMode
+}
+
+// SetCursorMode enables or disables Cursor mode for the active conversation.
+func (s *Store) SetCursorMode(ownerKey string, on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bag := s.getOrCreateLocked(ownerKey)
+	c := s.activeLocked(bag)
+	c.CursorMode = on
+	c.UpdatedAt = time.Now()
+	bag.UpdatedAt = time.Now()
+}
+
+// ActiveWorkspace returns the session workspace override, or fallback if unset.
+func (s *Store) ActiveWorkspace(ownerKey, fallback string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bag := s.getOrCreateLocked(ownerKey)
+	c := s.activeLocked(bag)
+	if strings.TrimSpace(c.Workspace) != "" {
+		return c.Workspace
+	}
+	return fallback
+}
+
+// GetWorkdir implements tools.WorkdirStore (empty means use TOOL_WORKSPACE root).
+func (s *Store) GetWorkdir(sessionKey string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bag := s.getOrCreateLocked(sessionKey)
+	c := s.activeLocked(bag)
+	return strings.TrimSpace(c.Workspace)
+}
+
+// SetWorkdir implements tools.WorkdirStore.
+func (s *Store) SetWorkdir(sessionKey, absPath string) error {
+	s.SetWorkspace(sessionKey, absPath)
+	return nil
+}
+
+// SetWorkspace sets the Cursor/tool working directory for the active conversation.
+// Changing workspace clears CursorAgentID so the next run creates a new agent.
+func (s *Store) SetWorkspace(ownerKey, absPath string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bag := s.getOrCreateLocked(ownerKey)
+	c := s.activeLocked(bag)
+	prev := c.Workspace
+	c.Workspace = strings.TrimSpace(absPath)
+	if c.Workspace != prev {
+		c.CursorAgentID = ""
+	}
+	c.UpdatedAt = time.Now()
+	bag.UpdatedAt = time.Now()
+}
+
+// ClearWorkspace removes the session override (back to TOOL_WORKSPACE default).
+func (s *Store) ClearWorkspace(ownerKey string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bag := s.getOrCreateLocked(ownerKey)
+	c := s.activeLocked(bag)
+	if c.Workspace != "" {
+		c.Workspace = ""
+		c.CursorAgentID = ""
+	}
+	c.UpdatedAt = time.Now()
+	bag.UpdatedAt = time.Now()
 }
 
 // AppendTurn appends user+assistant turns and returns the new message count.
@@ -289,6 +391,8 @@ func (s *Store) ClearActive(ownerKey string) ListItem {
 	bag := s.getOrCreateLocked(ownerKey)
 	c := s.activeLocked(bag)
 	c.Messages = nil
+	c.CursorAgentID = ""
+	// Keep CursorMode + Workspace so /clear only drops transcript, not the coding mode.
 	c.UpdatedAt = time.Now()
 	bag.UpdatedAt = time.Now()
 	idx := 1
@@ -372,6 +476,8 @@ func (s *Store) activeViewLocked(bag *ownerBag) ActiveView {
 		OwnerUsage:   bag.Usage,
 		ContextChars: chars,
 		ContextEst:   est,
+		Workspace:    c.Workspace,
+		CursorMode:   c.CursorMode,
 	}
 }
 

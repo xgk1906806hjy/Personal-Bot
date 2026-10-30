@@ -138,6 +138,42 @@ func TestMaybeCompress(t *testing.T) {
 	}
 }
 
+func TestWorkspaceOverride(t *testing.T) {
+	s := NewStore(2, 30, 16)
+	key := BuildKey(config.PlatformQQ, "cw", "uw")
+	if got := s.ActiveWorkspace(key, `E:\default`); got != `E:\default` {
+		t.Fatalf("fallback: %q", got)
+	}
+	s.SetCursorAgentID(key, "agent-old")
+	s.SetWorkspace(key, `E:\other`)
+	if id := s.LoadActiveCursorAgentID(key); id != "" {
+		t.Fatalf("changing workspace should clear agent id, got %q", id)
+	}
+	if got := s.ActiveWorkspace(key, `E:\default`); got != `E:\other` {
+		t.Fatalf("override: %q", got)
+	}
+	s.ClearWorkspace(key)
+	if got := s.ActiveWorkspace(key, `E:\default`); got != `E:\default` {
+		t.Fatalf("after clear: %q", got)
+	}
+}
+
+func TestCursorAgentID(t *testing.T) {
+	s := NewStore(2, 30, 16)
+	key := BuildKey(config.PlatformQQ, "c5", "u5")
+	if id := s.LoadActiveCursorAgentID(key); id != "" {
+		t.Fatalf("want empty, got %q", id)
+	}
+	s.SetCursorAgentID(key, "agent-xyz")
+	if id := s.LoadActiveCursorAgentID(key); id != "agent-xyz" {
+		t.Fatalf("got %q", id)
+	}
+	s.ClearActive(key)
+	if id := s.LoadActiveCursorAgentID(key); id != "" {
+		t.Fatalf("clear should drop agent id, got %q", id)
+	}
+}
+
 func TestUsageAndClear(t *testing.T) {
 	s := NewStore(2, 30, 16)
 	key := BuildKey(config.PlatformQQ, "c4", "u4")
