@@ -19,8 +19,9 @@ const (
 	PlatformWechat MessagingPlatform = "wechat"
 	PlatformQQ     MessagingPlatform = "qq"
 
-	ModelGatewayAPI ModelChannel = "gateway_api"
-	ModelCodexLocal ModelChannel = "codex_local"
+	ModelGatewayAPI  ModelChannel = "gateway_api"
+	ModelCodexLocal  ModelChannel = "codex_local"
+	ModelCursorLocal ModelChannel = "cursor_local"
 
 	QQTransportWebsocket QQTransport = "websocket"
 	QQTransportWebhook   QQTransport = "webhook"
@@ -52,6 +53,11 @@ type Config struct {
 	GatewayAPIModel            string
 	GatewayAPIExtraHeaderName  string
 	GatewayAPIExtraHeaderValue string
+
+	CursorAPIKey      string
+	CursorModel       string
+	CursorNodeBin     string
+	CursorAgentScript string // absolute path to cursor-agent.mjs
 
 	SessionTTLHours      int
 	SessionCompressAfter int
@@ -87,9 +93,12 @@ func Load() (*Config, error) {
 		GatewayAPIModel:            getenv("GATEWAY_API_MODEL", "gpt-4o-mini"),
 		GatewayAPIExtraHeaderName:  os.Getenv("GATEWAY_API_EXTRA_HEADER_NAME"),
 		GatewayAPIExtraHeaderValue: os.Getenv("GATEWAY_API_EXTRA_HEADER_VALUE"),
-		SessionTTLHours:      getenvInt("SESSION_TTL_HOURS", 2),
-		SessionCompressAfter: getenvInt("SESSION_COMPRESS_AFTER", 30),
-		SessionKeepRecent:    getenvInt("SESSION_KEEP_RECENT", 16),
+		CursorAPIKey:               os.Getenv("CURSOR_API_KEY"),
+		CursorModel:                getenv("CURSOR_MODEL", "composer-2.5"),
+		CursorNodeBin:              getenv("CURSOR_NODE_BIN", "node"),
+		SessionTTLHours:            getenvInt("SESSION_TTL_HOURS", 2),
+		SessionCompressAfter:       getenvInt("SESSION_COMPRESS_AFTER", 30),
+		SessionKeepRecent:          getenvInt("SESSION_KEEP_RECENT", 16),
 		BotSystemPrompt: getenv(
 			"BOT_SYSTEM_PROMPT",
 			"You are my personal exclusive assistant. Be concise, practical, and clear. If you are unsure, say what is missing instead of guessing.",
@@ -119,8 +128,18 @@ func Load() (*Config, error) {
 	}
 	cfg.ToolWorkspace = absWorkspace
 
+	script := os.Getenv("CURSOR_AGENT_SCRIPT")
+	if script == "" {
+		script = filepath.Join("scripts", "cursor-agent", "cursor-agent.mjs")
+	}
+	absScript, err := filepath.Abs(script)
+	if err != nil {
+		return nil, fmt.Errorf("CURSOR_AGENT_SCRIPT: %w", err)
+	}
+	cfg.CursorAgentScript = absScript
+
 	switch cfg.ModelChannel {
-	case ModelGatewayAPI, ModelCodexLocal:
+	case ModelGatewayAPI, ModelCodexLocal, ModelCursorLocal:
 	default:
 		return nil, fmt.Errorf("unknown MODEL_CHANNEL: %s", cfg.ModelChannel)
 	}
@@ -147,6 +166,9 @@ func Load() (*Config, error) {
 
 	if cfg.ModelChannel == ModelGatewayAPI && cfg.GatewayAPIKey == "" {
 		return nil, fmt.Errorf("GATEWAY_API_KEY is required when MODEL_CHANNEL=gateway_api")
+	}
+	if cfg.ModelChannel == ModelCursorLocal && cfg.CursorAPIKey == "" {
+		return nil, fmt.Errorf("CURSOR_API_KEY is required when MODEL_CHANNEL=cursor_local")
 	}
 
 	return cfg, nil

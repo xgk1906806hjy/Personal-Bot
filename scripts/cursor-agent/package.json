@@ -1,0 +1,11 @@
+{
+  "name": "personal-bot-cursor-agent",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.2.0"
+  }
+}

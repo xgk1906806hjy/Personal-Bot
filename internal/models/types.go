@@ -22,6 +22,10 @@ type Request struct {
 	Prompt         string
 	// DisableTools skips tool binding (used for session compression summaries).
 	DisableTools bool
+	// ExternalAgentID is a Cursor (or similar) durable agent id for resume.
+	ExternalAgentID string
+	// Workspace overrides the default TOOL_WORKSPACE for this call (Cursor cwd).
+	Workspace string
 }
 
 // TokenUsage is API-reported or estimated token counts for one Chat call.
@@ -42,10 +46,11 @@ func (u TokenUsage) Add(other TokenUsage) TokenUsage {
 }
 
 type Response struct {
-	Channel        config.ModelChannel
-	Text           string
-	ConversationID string
-	Usage          TokenUsage
+	Channel         config.ModelChannel
+	Text            string
+	ConversationID  string
+	Usage           TokenUsage
+	ExternalAgentID string
 }
 
 // Channel is a pluggable model backend.
