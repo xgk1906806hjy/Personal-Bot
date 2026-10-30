@@ -24,8 +24,8 @@ QQ / 飞书 / 微信     gateway_api / codex_local / cursor_local
 |----|--------|------|
 | 消息平台 | `qq`（WebSocket + Webhook）、`feishu`（Webhook） | `wechat` 仅为占位 |
 | 模型通道 | `gateway_api`、`codex_local`、`cursor_local` | 三者同级；另可用 `/cursor` 会话级进入 Cursor 模式 |
-| 工具 | `read_file` / `write_file` / `list_dir` / `run_command` / `get_workdir` / `set_workdir` / `web_search` / `fetch_url` | `gateway_api` 的 OpenAI tools；会话级 workdir；无 Key 联网检索 |
-| 会话 | 多会话、压缩、token 统计、Cursor 模式与 Agent resume | 内存存储，重启清空 |
+| 工具 | `read_file` / `write_file` / `list_dir` / `run_command` / `get_workdir` / `set_workdir` / `web_search` / `fetch_url` | 仅 `gateway_api`；按需调用；会话级 workdir；无 Key 联网检索 |
+| 会话 | 多会话、压缩、token 统计、Cursor 模式与 Agent resume | 内存存储，重启清空；配置在 `.env`，改完需重启 |
 
 ## 快速开始
 
@@ -137,7 +137,9 @@ TOOL_MAX_OUTPUT_BYTES=100000
 | `web_search` | 无 Key 联网搜索（DuckDuckGo HTML）；返回标题/链接/摘要 |
 | `fetch_url` | 拉取 http(s) 页面正文（HTML 去标签）；受 `TOOL_MAX_OUTPUT_BYTES` 截断 |
 
-模型按需调用工具（`tool_choice=auto`），不会每次全调。DDG HTML 可能偶发风控或页面结构变化。`WEB_TOOLS_ENABLED=false` 可关掉联网工具。
+模型按需调用工具（`tool_choice=auto`），不会每次全调。摘要压缩请求会 `DisableTools`，避免压缩时再调工具；`/cursor` 走 Cursor SDK，不用这套 Go 工具。
+
+DDG HTML 可能偶发风控或页面结构变化。`WEB_TOOLS_ENABLED=false` 可关掉联网工具。上述 `TOOLS_*` / `WEB_*` 均读自 `.env`，进程启动时载入，**改配置需重启**。
 
 `TOOL_WORKSPACE` 只是**默认起点**，不是路径监狱。切换后文件工具与 `/cursor` 共用该会话 workdir。
 
@@ -182,7 +184,7 @@ internal/
   orchestrator/                # 指令、Cursor 模式、workdir
   session/                     # 多会话 / 压缩 / token / CursorMode
   app/
-  tools/                       # fs + workdir + shell
+  tools/                       # fs + workdir + shell + web_search/fetch_url
   messaging/ qq|feishu|wechat
   models/ gateway|codex|cursor
 legacy/node/
@@ -194,5 +196,6 @@ legacy/node/
 
 - `gateway_api` 可调工具；`codex_local` / `cursor_local` 为同级本地通道。
 - Cursor 也可不改 `MODEL_CHANNEL`，用会话级 `/cursor` 模式临时切入。
+- 联网检索无需第三方 API Key（DuckDuckGo HTML + 直接拉页）。
 - 微信适配器尚未实现。
 - 密钥只放 `.env`（已 gitignore）；`scripts/cursor-agent/node_modules` 不入库。

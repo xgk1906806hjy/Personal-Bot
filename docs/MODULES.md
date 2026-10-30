@@ -36,12 +36,12 @@ flowchart TD
   cursorMode -->|否| loadHist[LoadActiveMessages]
   loadHist --> chat[model.Chat]
   chat --> needTool{gateway tool_calls?}
-  needTool -->|是| execTool[tools.Execute 含 set_workdir]
+  needTool -->|是| execTool[tools.Execute 含 set_workdir 或 web]
   execTool --> chat
   needTool -->|否| answer[最终回答]
   answer --> appendTurn[AppendTurn]
   appendTurn --> needCompress{条数大于阈值且非Cursor?}
-  needCompress -->|是| compress[摘要压缩]
+  needCompress -->|是| compress[摘要压缩 DisableTools]
   needCompress -->|否| outReply
   compress --> outReply[ReplyText]
   outReply --> waitEvt
@@ -82,6 +82,8 @@ flowchart TB
   Helper --> CursorSDK
   GW --> GatewayAPI
   GW --> Tools
+  Tools -->|web_search| DDG[DuckDuckGo HTML]
+  Tools -->|fetch_url| HTTP[任意 http_s 页面]
   Codex --> CodexCLI
   Tools --> Sess
 ```
@@ -115,9 +117,10 @@ scripts/cursor-agent ◄── cursor_local 与 /cursor 模式
 | 消息 | `MESSAGING_CHANNELS`、飞书 / QQ 凭证、`QQ_TRANSPORT` |
 | 模型 | `MODEL_CHANNEL`、`GATEWAY_*`、`CODEX_*`、`CURSOR_*` |
 | 会话 | `SESSION_TTL_HOURS`、`SESSION_COMPRESS_AFTER`、`SESSION_KEEP_RECENT` |
-| 工具 | `TOOLS_*`、`WEB_TOOLS_ENABLED`、`TOOL_HTTP_TIMEOUT_SEC`、`TOOL_WORKSPACE`（默认起点，非路径监狱） |
+| 工具 | `TOOLS_ENABLED`、`WEB_TOOLS_ENABLED`、`TOOL_WORKSPACE`、`TOOL_COMMAND_TIMEOUT_SEC`、`TOOL_HTTP_TIMEOUT_SEC`、`TOOL_MAX_ROUNDS`、`TOOL_MAX_OUTPUT_BYTES` |
 
-`cursor_local` 需要 `CURSOR_API_KEY`；`/cursor` 模式同样依赖该 key（`CreateCursorOptional`）。
+全部环境变量在启动时由 `config.Load()` 读入内存（通常来自 `.env`），**运行中不热更新**；改完需重启进程。  
+`TOOL_WORKSPACE` 仅为默认起点，不是路径监狱。`cursor_local` 与 `/cursor` 模式都需要 `CURSOR_API_KEY`（后者经 `CreateCursorOptional`）。
 
 ---
 
@@ -148,8 +151,9 @@ scripts/cursor-agent ◄── cursor_local 与 /cursor 模式
 **`Handle`：**
 
 1. 斜杠指令 → 状态文案（一般不调模型）
-2. 若 `CursorMode` 或主通道为 `cursor_local` → `chatWithCursor`
-3. 否则主通道 `model.Chat`；gateway 可 tools；条数超阈值则压缩（Cursor 路径不做条数压缩）
+2. 若 `CursorMode` 或主通道为 `cursor_local` → `chatWithCursor`（Cursor SDK，不用 Go tools）
+3. 否则主通道 `model.Chat`；`gateway_api` 在 `TOOLS_ENABLED` 下挂全部已注册工具，`tool_choice=auto` 由模型按需调用
+4. 条数超阈值则压缩（Cursor 路径不做条数压缩）；压缩摘要请求带 `DisableTools: true`
 
 **Cursor 模式：**
 
@@ -178,7 +182,8 @@ scripts/cursor-agent ◄── cursor_local 与 /cursor 模式
 
 ### 8.2 压缩
 
-条数 `> SESSION_COMPRESS_AFTER` → LLM 摘要 + 保留最近 `SESSION_KEEP_RECENT`；失败则硬截断。
+条数 `> SESSION_COMPRESS_AFTER` → LLM 摘要 + 保留最近 `SESSION_KEEP_RECENT`；失败则硬截断。  
+摘要调用主通道 `Chat` 时设置 `DisableTools: true`（仅该次请求），防止压缩阶段触发文件/联网工具。
 
 ### 8.3 Token
 
@@ -209,11 +214,12 @@ type Request struct {
 
 | `MODEL_CHANNEL` | 行为 |
 |-----------------|------|
-| `gateway_api` | chat.completions + tools（context 带 SessionKey） |
+| `gateway_api` | chat.completions + tools（SessionKey 经 context；可 `DisableTools`） |
 | `codex_local` | `codex exec`，同级本地通道 |
 | `cursor_local` | Node 助手 + Cursor SDK，同级本地通道 |
 
-`CreateCursorOptional`：主通道非 `cursor_local` 且配置了 key 时，供 `/cursor` 模式使用。
+`CreateCursorOptional`：主通道非 `cursor_local` 且配置了 key 时，供 `/cursor` 模式使用。  
+`Request.DisableTools` 是**单次请求**标志，不是会话级开关；目前仅压缩摘要使用。
 
 ### 9.3 Cursor 助手
 
@@ -226,12 +232,13 @@ type Request struct {
 | 工具 | 说明 |
 |------|------|
 | `list_dir` / `read_file` / `write_file` | 相对**当前会话 workdir** |
-| `run_command` | cwd = 当前 workdir |
+| `run_command` | cwd = 当前 workdir；输出受 `TOOL_MAX_OUTPUT_BYTES` 限制 |
 | `get_workdir` / `set_workdir` | 查看 / 切换；**允许任意绝对路径** |
-| `web_search` | 无 Key；DuckDuckGo HTML 解析结果（标题/URL/摘要） |
-| `fetch_url` | GET http(s)；HTML→纯文本；体长受 `TOOL_MAX_OUTPUT_BYTES` 限制 |
+| `web_search` | 无 Key；DuckDuckGo HTML；标题/URL/摘要（实现 `web.go`） |
+| `fetch_url` | GET http(s)；HTML→纯文本；超时 `TOOL_HTTP_TIMEOUT_SEC`；体长受 `TOOL_MAX_OUTPUT_BYTES` |
 
-`TOOL_WORKSPACE` 仅为默认起点。`pathResolver` 通过 context 中的 SessionKey 读 `WorkdirStore`。联网工具由 `WEB_TOOLS_ENABLED`（默认 true）控制；实现见 `web.go`。
+`TOOL_WORKSPACE` 仅为默认起点。`pathResolver` 通过 context 中的 SessionKey 读 `WorkdirStore`。  
+`TOOLS_ENABLED=false` 时不建 Registry；`WEB_TOOLS_ENABLED=false` 时不注册联网两项。截断/超时等上限来自启动时的 `Config`，不是会话字段。
 
 ---
 
@@ -264,17 +271,21 @@ sequenceDiagram
     O-->>P: 回答
   else 普通对话
     O->>G: Chat
-    opt set_workdir
-      G->>T: set_workdir
-      T->>S: SetWorkdir
+    opt 工具循环
+      G->>T: set_workdir / web_search / fetch_url / ...
+      T->>S: SetWorkdir 若切目录
     end
     G-->>O: 回答
     O->>S: AppendTurn
+    opt 条数压缩
+      O->>G: Summarize DisableTools
+    end
     O-->>P: 回答
   end
 ```
 
-典型改代码路径：普通对话 `set_workdir` → `/cursor` → 发需求 → `/cursor exit`。
+典型改代码路径：普通对话 `set_workdir` → `/cursor` → 发需求 → `/cursor exit`。  
+联网问答：`web_search` →（可选）`fetch_url` → 回答。
 
 ---
 
@@ -298,6 +309,8 @@ sequenceDiagram
 | [`internal/orchestrator/orchestrator.go`](../internal/orchestrator/orchestrator.go) | 指令与 Cursor 模式 |
 | [`internal/session/store.go`](../internal/session/store.go) | 多会话 / workdir / CursorMode |
 | [`internal/tools/workdir.go`](../internal/tools/workdir.go) | set/get_workdir |
+| [`internal/tools/web.go`](../internal/tools/web.go) | web_search / fetch_url |
 | [`internal/models/cursor.go`](../internal/models/cursor.go) | Cursor 通道 |
+| [`internal/models/gateway.go`](../internal/models/gateway.go) | 网关 + 工具循环 |
 | [`scripts/cursor-agent/`](../scripts/cursor-agent/) | Cursor SDK 助手 |
-| [`.env.example`](../.env.example) | 配置模板 |
+| [`.env.example`](../.env.example) | 配置模板（改后需重启） |
