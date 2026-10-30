@@ -6,349 +6,296 @@
 
 ### 1.1 总体流程图
 
-从进程启动到一问一答的端到端流程：
+从进程启动到一问一答：
 
 ```mermaid
 flowchart TD
-  start([进程启动]) --> loadCfg[config.Load 读.env]
-  loadCfg --> createModel[models.Create]
-  createModel --> maybeTools{TOOLS_ENABLED?}
-  maybeTools -->|是| regTools[tools.Registry 沙箱工具]
-  maybeTools -->|否| noTools[无工具通道]
-  regTools --> wireOrch
-  noTools --> wireOrch[session.NewStore + orchestrator.New]
-  wireOrch --> adapters[app 装配 messaging 适配器]
-  adapters --> mux[httpapi.NewMux /healthz]
-  mux --> mount[各 Adapter.Mount WS或Webhook]
-  mount --> listen[监听 HOST:PORT]
+  start([进程启动]) --> loadCfg[config.Load]
+  loadCfg --> sess[session.NewStore]
+  sess --> createModel[models.Create 注入 WorkdirStore]
+  createModel --> cursorOpt[CreateCursorOptional]
+  cursorOpt --> wireOrch[orchestrator.New]
+  wireOrch --> adapters[app 装配 messaging]
+  adapters --> mux[httpapi + Adapter.Mount]
+  mux --> listen[监听 HOST:PORT]
   listen --> waitEvt([等待用户消息])
 
-  waitEvt --> inbound[QQ或飞书入站事件]
-  inbound --> parse[解析文本 去重]
-  parse --> ack[先回复 thinking]
+  waitEvt --> inbound[QQ或飞书入站]
+  inbound --> ack[先回复 thinking]
   ack --> handle[orchestrator.Handle]
 
-  handle --> isCmd{以斜杠开头?}
-  isCmd -->|是| cmdSession[session 多会话指令]
-  cmdSession --> replyCmd[返回状态文案]
-  replyCmd --> outReply
+  handle --> isCmd{斜杠指令?}
+  isCmd -->|是| cmd[会话/Cursor模式/workdir 指令]
+  cmd --> outReply
 
-  isCmd -->|否| loadHist[LoadActiveMessages]
-  loadHist --> chat[model.Chat 历史+本轮]
-  chat --> needTool{gateway且tool_calls?}
-  needTool -->|是| execTool[tools.Execute 工作区内]
+  isCmd -->|否| cursorMode{CursorMode或cursor_local?}
+  cursorMode -->|是| cursorChat[cursor.Chat cwd=会话Workspace]
+  cursorChat --> appendC[AppendTurn]
+  appendC --> outReply
+
+  cursorMode -->|否| loadHist[LoadActiveMessages]
+  loadHist --> chat[model.Chat]
+  chat --> needTool{gateway tool_calls?}
+  needTool -->|是| execTool[tools.Execute 含 set_workdir]
   execTool --> chat
-  needTool -->|否| answer[得到最终回答]
-  answer --> appendTurn[AppendTurn 写入当前会话]
-  appendTurn --> needCompress{条数大于压缩阈值?}
-  needCompress -->|是| compress[摘要压缩 KeepRecent]
+  needTool -->|否| answer[最终回答]
+  answer --> appendTurn[AppendTurn]
+  appendTurn --> needCompress{条数大于阈值且非Cursor?}
+  needCompress -->|是| compress[摘要压缩]
   needCompress -->|否| outReply
-  compress --> outReply[适配器 ReplyText]
+  compress --> outReply[ReplyText]
   outReply --> waitEvt
-
-  listen -.->|SIGINT或SIGTERM| shutdown[Shutdown + Adapter.Close]
-  shutdown --> endNode([进程退出])
 ```
 
-### 1.2 模块依赖关系
+### 1.2 框架图
+
+```mermaid
+flowchart TB
+  subgraph external [外部]
+    User[用户 QQ或飞书]
+    GatewayAPI[OpenAI兼容网关]
+    CodexCLI[本机 Codex CLI]
+    CursorSDK[Cursor SDK 本地 Agent]
+  end
+
+  subgraph runtime [Personal Bot]
+    Main[cmd/personal-bot]
+    Cfg[config]
+    Orch[orchestrator]
+    Sess[session]
+    GW[gateway_api]
+    Codex[codex_local]
+    CursorCh[cursor_local]
+    Tools[tools Registry]
+    Helper[scripts/cursor-agent]
+  end
+
+  User --> Orch
+  Main --> Cfg
+  Main --> Orch
+  Orch --> Sess
+  Orch --> GW
+  Orch --> Codex
+  Orch --> CursorCh
+  Orch -->|Cursor模式| Helper
+  CursorCh --> Helper
+  Helper --> CursorSDK
+  GW --> GatewayAPI
+  GW --> Tools
+  Codex --> CodexCLI
+  Tools --> Sess
+```
+
+### 1.3 模块依赖（简图）
 
 ```
-┌─────────────┐   ┌──────────────┐
-│ messaging/* │   │ models/*     │
-│ qq/feishu   │   │ gateway/codex│
-└──────┬──────┘   └──────▲───────┘
-       │                 │
-       ▼                 │
-┌──────────────┐   ┌─────┴──────┐
-│ orchestrator │──▶│ session    │
-└──────────────┘   └────────────┘
-       ▲
-       │ Mount / HTTP
-┌──────┴───────┐   ┌────────────┐
-│ cmd + httpapi│   │ tools/*    │◀── gateway tools loop
-│ app (装配)   │   └────────────┘
-└──────────────┘
+messaging/* ──► orchestrator ──► session
+                     │
+                     ├── models (gateway / codex / cursor)
+                     └── tools ◄── gateway（SessionKey 经 context）
+scripts/cursor-agent ◄── cursor_local 与 /cursor 模式
 ```
 
-启动顺序（[`cmd/personal-bot/main.go`](../cmd/personal-bot/main.go)）：
-
-1. `config.Load()` 读 `.env`
-2. `models.Create` 建模型通道（可选挂上 `tools.Registry`）
-3. `session.NewStore` + `orchestrator.New`
-4. `app.CreateMessagingAdapters` → `httpapi.NewMux` → 各适配器 `Mount`
-5. 监听 `HOST:PORT`，优雅关闭时 `Shutdown` + `Adapter.Close`
-
-平台无关的入站统一为 `orchestrator.IncomingUserMessage`；出站由各 messaging 适配器自行 `ReplyText`。
+启动顺序：`config` → `session.NewStore` → `models.Create(cfg, sessions)` → `CreateCursorOptional` → `orchestrator.New` → messaging `Mount` → listen。
 
 ---
 
 ## 2. `cmd/personal-bot`
 
-进程入口。不业务逻辑，只装配依赖、打 boot 日志、跑 HTTP 与信号处理。
-
-| 步骤 | 说明 |
-|------|------|
-| 配置失败 / 模型失败 / Mount 失败 | `log.Fatalf` 退出 |
-| HTTP | `http.Server` + `/healthz` 及适配器注册的 webhook |
-| 信号 | `SIGINT` / `SIGTERM` → 10s 超时 Shutdown |
+进程入口：装配依赖、boot 日志、HTTP、信号优雅退出。  
+`sessions` 同时作为 `tools.WorkdirStore` 注入 gateway 工具，使 `set_workdir` 与 `/cursor` 共用同一会话目录。
 
 ---
 
 ## 3. `internal/config`
 
-环境变量加载与校验。依赖 `godotenv`，优先进程环境，`.env` 作本地默认。
-
-**主要字段分组：**
-
-| 组 | 关键变量 |
-|----|----------|
+| 组 | 变量 |
+|----|------|
 | 服务 | `HOST` `PORT` |
-| 消息 | `MESSAGING_CHANNELS`（逗号分隔）、飞书 / QQ 凭证与 `QQ_TRANSPORT` |
-| 模型 | `MODEL_CHANNEL`、`GATEWAY_*`、`CODEX_*` |
+| 消息 | `MESSAGING_CHANNELS`、飞书 / QQ 凭证、`QQ_TRANSPORT` |
+| 模型 | `MODEL_CHANNEL`、`GATEWAY_*`、`CODEX_*`、`CURSOR_*` |
 | 会话 | `SESSION_TTL_HOURS`、`SESSION_COMPRESS_AFTER`、`SESSION_KEEP_RECENT` |
-| 人设 | `BOT_SYSTEM_PROMPT` |
-| 工具 | `TOOLS_*`、`TOOL_WORKSPACE`（解析为绝对路径） |
+| 工具 | `TOOLS_*`、`TOOL_WORKSPACE`（默认起点，非路径监狱） |
 
-**校验：** 启用的平台必须带齐凭证；`gateway_api` 必须有 `GATEWAY_API_KEY`；未知枚举值直接报错。
-
-类型别名：`MessagingPlatform`、`ModelChannel`、`QQTransport`。
+`cursor_local` 需要 `CURSOR_API_KEY`；`/cursor` 模式同样依赖该 key（`CreateCursorOptional`）。
 
 ---
 
 ## 4. `internal/app`
 
-消息适配器工厂，避免 `main` 直接依赖各平台包产生循环引用。
-
-- `CreateMessagingAdapters(ids)` → `[]messaging.Adapter`
-- `ReadyMessagingPlatforms()` → 当前实现完备的平台（`qq`、`feishu`；`wechat` 不在此列）
+消息适配器工厂：`qq` / `feishu` / `wechat`（占位）。
 
 ---
 
 ## 5. `internal/httpapi`
 
-创建根 `ServeMux`，注册通用路由。适配器可在 `Mount` 时往同一 mux 挂 webhook。
-
-**`GET /healthz` JSON：**
-
-- `ok`、`runtime: go`
-- `messaging.enabled` / `messaging.ready`
-- `model.active` / `model.available`
+`GET /healthz`：messaging / model / runtime 状态。适配器可往同一 mux 挂 webhook。
 
 ---
 
 ## 6. `internal/messaging`
 
-### 6.1 接口（`types.go`）
+`Adapter`：`Mount` / `Close`。入站统一为 `orchestrator.IncomingUserMessage`。
 
-```go
-type Adapter interface {
-    ID() config.MessagingPlatform
-    Mount(ctx AdapterContext) error  // 注册 HTTP 和/或长连接
-    Close() error
-}
-
-type AdapterContext struct {
-    Config, Orchestrator, Mux
-}
-```
-
-### 6.2 `messaging/qq`
-
-QQ 开放平台机器人。
-
-| 文件 | 职责 |
-|------|------|
-| `adapter.go` | 按 `QQ_TRANSPORT` 启 WS / Webhook / both |
-| `ws.go` | 网关 WebSocket：Hello、Identify、心跳、Resume、事件分发 |
-| `webhook.go` | HTTP 回调 + Ed25519 验签；挑战响应 |
-| `crypto.go` | 签名校验 |
-| `client.go` | 调 QQ HTTP API（access_token、回复群/C2C） |
-| `handler.go` | 解析入站、去重、先回「thinking」、再调 Orchestrator |
-
-**事件：** `GROUP_AT_MESSAGE_CREATE`（群 @）、`C2C_MESSAGE_CREATE`（私聊）。  
-**去重：** 进程内 `messageID` 集合，上限约 5000 条轮换删除。  
-**文本：** `cleanText` 去掉 mention 噪声。
-
-### 6.3 `messaging/feishu`
-
-飞书事件订阅 Webhook：解密/校验、抽文本（去 @）、回复。逻辑与 QQ handler 对称，最终都进 `orch.Handle`。
-
-### 6.4 `messaging/wechat`
-
-占位。`Mount` 返回明确未实现错误，便于配置写错时立刻失败。
+- **qq**：WS / Webhook + Ed25519；群 @ / C2C；先回 thinking。
+- **feishu**：Webhook 解密校验与回复。
+- **wechat**：占位，Mount 报错。
 
 ---
 
 ## 7. `internal/orchestrator`
 
-平台无关编排层：会话指令 + 对话 + 压缩触发。
+**`Handle`：**
 
-**入站：** `IncomingUserMessage{Platform, ChatID, UserID, MessageID, Text}`
+1. 斜杠指令 → 状态文案（一般不调模型）
+2. 若 `CursorMode` 或主通道为 `cursor_local` → `chatWithCursor`
+3. 否则主通道 `model.Chat`；gateway 可 tools；条数超阈值则压缩（Cursor 路径不做条数压缩）
 
-**`Handle` 流程：**
+**Cursor 模式：**
 
-1. `session.BuildKey(platform, chat, user)` 得到 owner key  
-2. 若文本以 `/` 开头 → 斜杠指令，直接返回中文状态，**不调模型**  
-3. 否则 `LoadActiveMessages` → `model.Chat(Messages + Prompt)`  
-4. `AppendTurn`；若条数 `> CompressAfter` → `MaybeCompress`（无 tool 摘要）
+| 指令 | 行为 |
+|------|------|
+| `/cursor` | 进入模式；之后普通消息走 Cursor |
+| `/cursor exit` | 退出，回到主通道 |
+| `/cursor status` | 查看状态 |
+| `/cursor 路径` | 设 workdir 并进入 |
+| `/cursor 需求` | 进入并立刻执行第一条 |
 
-**斜杠指令：** `/help` `/list` `/new` `/use` `/rename` `/ctx` `/tokens` `/tokens clear` `/clear`
-
-**压缩 Summarizer：** 包内 `modelSummarizer`，对旧消息调用 `Chat(..., DisableTools: true)`。
+**其它指令：** `/help` `/list` `/new` `/use` `/rename` `/ctx` `/tokens` `/workspace` `/cd` `/ls` `/clear` …
 
 ---
 
 ## 8. `internal/session`
 
-多会话与上下文的**唯一真相源**（模型通道不再自存 history）。
+多会话与上下文的唯一真相源。
 
-### 8.1 数据结构（`store.go`）
+### 8.1 数据
 
-- Owner key：`platform:chatID:userID`
-- 每个 owner：`ActiveID` + 最多 **10** 个 `Conversation`
-- 每个会话：`ID`（`cN`）、`Title`、`UpdatedAt`、`Messages[]{Role, Content}`
-- TTL：按 owner 最后活跃时间；超时整袋删除
-- 首次访问自动建「默认会话」
+- Owner：`platform:chat:user`
+- 每会话：`Messages`、`Usage`、`Workspace`、`CursorAgentID`、`CursorMode`
+- 上限 10 会话 / owner；TTL 按 owner 活跃时间
+- `/clear` 清消息与 Agent id，**保留** `CursorMode` 与 `Workspace`
 
-**API：** `List` / `Create` / `Switch` / `Rename` / `ClearActive` / `LoadActiveMessages` / `AppendTurn` / `ReplaceMessages` / `EnsureActive`
+### 8.2 压缩
 
-### 8.2 压缩（`compress.go`）
+条数 `> SESSION_COMPRESS_AFTER` → LLM 摘要 + 保留最近 `SESSION_KEEP_RECENT`；失败则硬截断。
 
-当 `len(messages) > compressAfter`（默认 30）：
+### 8.3 Token
 
-1. `old = 前面部分`，`keep = 最近 keepRecent`（默认 16）
-2. `Summarizer.Summarize(old)` → 一条 `role=system` 的 `[对话摘要]…`
-3. 失败则硬截断到 `keep`，打日志
+`AddUsage` / `ClearUsage`；`/tokens` 展示当前会话与 owner 合计。gateway 用 API `usage`；否则约估。
 
-内存存储，**进程重启丢失**。
+### 8.4 WorkdirStore
+
+实现 `tools.WorkdirStore`：`GetWorkdir` / `SetWorkdir`（即 `Workspace` 字段）。改目录会清空 `CursorAgentID`。
 
 ---
 
 ## 9. `internal/models`
 
-可插拔模型后端。
-
-### 9.1 契约（`types.go`）
+### 9.1 契约
 
 ```go
-type Channel interface {
-    ID() config.ModelChannel
-    Chat(req Request) (Response, error)
-}
-
 type Request struct {
     SessionKey, ConversationID string
-    Messages []ChatMessage   // 历史（含摘要），不含本轮 user
-    Prompt   string          // 本轮用户输入
-    DisableTools bool        // 压缩摘要时关闭 tools
+    Messages []ChatMessage
+    Prompt string
+    DisableTools bool
+    ExternalAgentID string  // Cursor resume
+    Workspace string        // Cursor cwd 覆盖
 }
 ```
 
-### 9.2 `registry.go` → `Create`
+### 9.2 通道
 
 | `MODEL_CHANNEL` | 行为 |
 |-----------------|------|
-| `gateway_api` | 可选构建 `tools.Registry`，返回 gateway 通道 |
-| `codex_local` | 本机 `codex exec`，无 OpenAI tools 循环 |
+| `gateway_api` | chat.completions + tools（context 带 SessionKey） |
+| `codex_local` | `codex exec`，同级本地通道 |
+| `cursor_local` | Node 助手 + Cursor SDK，同级本地通道 |
 
-### 9.3 `gateway.go`
+`CreateCursorOptional`：主通道非 `cursor_local` 且配置了 key 时，供 `/cursor` 模式使用。
 
-OpenAI 兼容 `POST {base}/chat/completions`：
+### 9.3 Cursor 助手
 
-1. 拼 `system`（人设 + 工具说明）+ `req.Messages` + 本轮 `user`
-2. 若启用 tools：多轮 `tool_calls` → `tools.Execute`，上限 `TOOL_MAX_ROUNDS`
-3. `DisableTools` 时单轮、不带 tools
-4. **不写**会话历史；由 orchestrator/session 负责
-
-### 9.4 `codex.go`
-
-把人设 + 历史 + 本轮用户拼成一段 prompt，执行 `codex exec --skip-git-repo-check`，工作目录 `CODEX_WORKING_DIRECTORY`，超时 10 分钟。同样无状态。
+`scripts/cursor-agent/cursor-agent.mjs`：stdin JSON → `Agent.create` / `resume` → stdout `{ok,text,agentId,usage?}`。
 
 ---
 
 ## 10. `internal/tools`
 
-仅 `gateway_api` 在 tools 开启时使用。所有路径解析经 `Workspace`，禁止逃出根目录。
-
-| 组件 | 说明 |
+| 工具 | 说明 |
 |------|------|
-| `types.go` | `Tool` 接口；转 OpenAI `tools[]` |
-| `registry.go` | 注册表、`Execute`、`OpenAITools` |
-| `workspace.go` | 绝对根路径 + `Resolve` 沙箱 |
-| `fs.go` | `read_file` / `write_file` / `list_dir` |
-| `shell.go` | `run_command`：超时、输出字节上限、cwd=workspace |
+| `list_dir` / `read_file` / `write_file` | 相对**当前会话 workdir** |
+| `run_command` | cwd = 当前 workdir |
+| `get_workdir` / `set_workdir` | 查看 / 切换；**允许任意绝对路径** |
 
-**配置：** `TOOLS_ENABLED`、`TOOL_WORKSPACE`、`TOOL_COMMAND_TIMEOUT_SEC`、`TOOL_MAX_ROUNDS`、`TOOL_MAX_OUTPUT_BYTES`。
+`TOOL_WORKSPACE` 仅为默认起点。`pathResolver` 通过 context 中的 SessionKey 读 `WorkdirStore`。
 
 ---
 
 ## 11. `legacy/node`
 
-历史 Node/TypeScript 实现，**不再作为主运行时**。新功能只合入 Go 树。迁移对照可参阅该目录内 README。
+历史实现，不再作为主运行时。
 
 ---
 
-## 12. 请求生命周期（正常对话）
+## 12. 请求时序（含 Cursor 模式）
 
 ```mermaid
 sequenceDiagram
-  participant P as QQ_or_Feishu
-  participant A as MessagingAdapter
+  participant P as QQ_Feishu
   participant O as Orchestrator
-  participant S as SessionStore
-  participant M as ModelChannel
+  participant S as Session
+  participant G as gateway_api
+  participant C as CursorAgent
   participant T as Tools
 
-  P->>A: inbound event
-  A->>A: ack thinking reply
-  A->>O: Handle(text)
-  alt slash command
-    O->>S: List_Create_Switch_...
-    O-->>A: status text
-  else chat
-    O->>S: LoadActiveMessages
-    O->>M: Chat(history, prompt)
-    opt tool_calls
-      M->>T: Execute
-      T-->>M: JSON result
-    end
-    M-->>O: answer
+  P->>O: text
+  alt slash
+    O->>S: 指令
+    O-->>P: 状态
+  else CursorMode
+    O->>S: Workspace AgentID
+    O->>C: Chat
+    C-->>O: text agentId
     O->>S: AppendTurn
-    opt len_gt_compressAfter
-      O->>M: Summarize DisableTools
-      O->>S: ReplaceMessages
+    O-->>P: 回答
+  else 普通对话
+    O->>G: Chat
+    opt set_workdir
+      G->>T: set_workdir
+      T->>S: SetWorkdir
     end
-    O-->>A: answer
+    G-->>O: 回答
+    O->>S: AppendTurn
+    O-->>P: 回答
   end
-  A->>P: final reply
 ```
+
+典型改代码路径：普通对话 `set_workdir` → `/cursor` → 发需求 → `/cursor exit`。
 
 ---
 
-## 13. 扩展指引（简表）
+## 13. 扩展指引
 
 | 想做 | 改哪里 |
 |------|--------|
-| 新消息平台 | 实现 `messaging.Adapter`，在 `app.createMessagingAdapter` 注册 |
-| 新模型后端 | 实现 `models.Channel`，在 `models.Create` / `List` 注册 |
-| 新工具 | 实现 `tools.Tool`，在 `NewRegistry` 里 `Register` |
-| 改会话策略 | `session` + orchestrator 指令解析；阈值用 env |
-| 新 HTTP 探针 | `httpapi.NewMux` |
+| 新消息平台 | `messaging.Adapter` + `app` 工厂 |
+| 新模型 | `models.Channel` + `Create` / `List` |
+| 新工具 | `tools.Tool` + `NewRegistry` |
+| 会话策略 | `session` + orchestrator 指令 |
+| Cursor 协议 | `scripts/cursor-agent` + `models/cursor.go` |
 
 ---
 
-## 14. 相关文件索引
+## 14. 文件索引
 
 | 路径 | 一句话 |
 |------|--------|
-| [`cmd/personal-bot/main.go`](../cmd/personal-bot/main.go) | 启动与关闭 |
-| [`internal/config/config.go`](../internal/config/config.go) | 配置 |
-| [`internal/orchestrator/orchestrator.go`](../internal/orchestrator/orchestrator.go) | 编排与指令 |
-| [`internal/session/store.go`](../internal/session/store.go) | 多会话存储 |
-| [`internal/session/compress.go`](../internal/session/compress.go) | 上下文压缩 |
-| [`internal/models/gateway.go`](../internal/models/gateway.go) | 网关对话 + tools |
-| [`internal/models/codex.go`](../internal/models/codex.go) | Codex CLI |
-| [`internal/tools/`](../internal/tools/) | 工作区沙箱工具 |
-| [`internal/messaging/qq/`](../internal/messaging/qq/) | QQ WS/Webhook |
-| [`internal/messaging/feishu/`](../internal/messaging/feishu/) | 飞书 Webhook |
+| [`cmd/personal-bot/main.go`](../cmd/personal-bot/main.go) | 启动装配 |
+| [`internal/orchestrator/orchestrator.go`](../internal/orchestrator/orchestrator.go) | 指令与 Cursor 模式 |
+| [`internal/session/store.go`](../internal/session/store.go) | 多会话 / workdir / CursorMode |
+| [`internal/tools/workdir.go`](../internal/tools/workdir.go) | set/get_workdir |
+| [`internal/models/cursor.go`](../internal/models/cursor.go) | Cursor 通道 |
+| [`scripts/cursor-agent/`](../scripts/cursor-agent/) | Cursor SDK 助手 |
 | [`.env.example`](../.env.example) | 配置模板 |
