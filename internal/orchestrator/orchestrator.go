@@ -23,19 +23,25 @@ type IncomingUserMessage struct {
 type Orchestrator struct {
 	cfg      *config.Config
 	model    models.Channel
+	cursor   models.Channel // optional; used only by /cursor
 	sessions *session.Store
 }
 
-func New(cfg *config.Config, model models.Channel, sessions *session.Store) *Orchestrator {
-	return &Orchestrator{cfg: cfg, model: model, sessions: sessions}
+func New(cfg *config.Config, model models.Channel, sessions *session.Store, cursor models.Channel) *Orchestrator {
+	return &Orchestrator{cfg: cfg, model: model, cursor: cursor, sessions: sessions}
 }
 
 func (o *Orchestrator) Handle(msg IncomingUserMessage) (string, error) {
 	ownerKey := session.BuildKey(msg.Platform, msg.ChatID, msg.UserID)
 	text := strings.TrimSpace(msg.Text)
 
-	if reply, handled := o.handleCommand(ownerKey, text); handled {
-		return reply, nil
+	if reply, handled, err := o.handleCommand(ownerKey, text); handled {
+		return reply, err
+	}
+
+	useCursor := o.sessions.IsCursorMode(ownerKey) || o.model.ID() == config.ModelCursorLocal
+	if useCursor {
+		return o.chatWithCursor(ownerKey, text)
 	}
 
 	conversationID, hist := o.sessions.LoadActiveMessages(ownerKey)
@@ -52,12 +58,48 @@ func (o *Orchestrator) Handle(msg IncomingUserMessage) (string, error) {
 	}
 
 	o.recordUsage(ownerKey, result.Usage)
-
 	_, count := o.sessions.AppendTurn(ownerKey, text, result.Text)
 	if count > o.sessions.CompressAfter() {
 		_ = o.sessions.MaybeCompress(ownerKey, modelSummarizer{model: o.model, sessions: o.sessions, ownerKey: ownerKey})
 	}
 	return result.Text, nil
+}
+
+func (o *Orchestrator) cursorChannel() models.Channel {
+	if o.cursor != nil {
+		return o.cursor
+	}
+	if o.model != nil && o.model.ID() == config.ModelCursorLocal {
+		return o.model
+	}
+	return nil
+}
+
+func (o *Orchestrator) chatWithCursor(ownerKey, text string) (string, error) {
+	cursor := o.cursorChannel()
+	if cursor == nil {
+		o.sessions.SetCursorMode(ownerKey, false)
+		return "未启用 Cursor：请配置 CURSOR_API_KEY 并 npm install --prefix scripts/cursor-agent。已退出 Cursor 模式。", nil
+	}
+
+	conversationID, _ := o.sessions.LoadActiveMessages(ownerKey)
+	ws := o.sessions.ActiveWorkspace(ownerKey, o.defaultWorkspace())
+	result, err := cursor.Chat(models.Request{
+		SessionKey:      ownerKey,
+		ConversationID:  conversationID,
+		Prompt:          text,
+		ExternalAgentID: o.sessions.LoadActiveCursorAgentID(ownerKey),
+		Workspace:       ws,
+	})
+	if err != nil {
+		return "", err
+	}
+	o.recordUsage(ownerKey, result.Usage)
+	if result.ExternalAgentID != "" {
+		o.sessions.SetCursorAgentID(ownerKey, result.ExternalAgentID)
+	}
+	o.sessions.AppendTurn(ownerKey, text, result.Text)
+	return fmt.Sprintf("[Cursor | %s]\n%s", ws, result.Text), nil
 }
 
 func (o *Orchestrator) recordUsage(ownerKey string, u models.TokenUsage) {
@@ -71,69 +113,203 @@ func (o *Orchestrator) ModelChannelID() config.ModelChannel {
 	return o.model.ID()
 }
 
-func (o *Orchestrator) handleCommand(ownerKey, text string) (string, bool) {
+func (o *Orchestrator) handleCommand(ownerKey, text string) (reply string, handled bool, err error) {
 	if !strings.HasPrefix(text, "/") {
-		return "", false
+		return "", false, nil
 	}
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
-		return "", false
+		return "", false, nil
 	}
 	cmd := strings.ToLower(fields[0])
 	arg := strings.TrimSpace(strings.TrimPrefix(text, fields[0]))
 
 	switch cmd {
 	case "/help":
-		return helpText(), true
+		return helpText(), true, nil
 	case "/list":
-		return formatList(o.sessions.List(ownerKey)), true
+		return formatList(o.sessions.List(ownerKey)), true, nil
 	case "/new":
 		item, err := o.sessions.Create(ownerKey, arg)
 		if err != nil {
-			return err.Error(), true
+			return err.Error(), true, nil
 		}
-		return fmt.Sprintf("已新建并切换到 [%d] %s", item.Index, item.Title), true
+		return fmt.Sprintf("已新建并切换到 [%d] %s", item.Index, item.Title), true, nil
 	case "/use":
 		n, err := strconv.Atoi(strings.TrimSpace(arg))
 		if err != nil || n < 1 {
-			return "用法：/use 序号（先 /list）", true
+			return "用法：/use 序号（先 /list）", true, nil
 		}
 		item, err := o.sessions.Switch(ownerKey, n)
 		if err != nil {
-			return err.Error(), true
+			return err.Error(), true, nil
 		}
-		return fmt.Sprintf("已切换到 [%d] %s（%d 条消息）", item.Index, item.Title, item.Msgs), true
+		return fmt.Sprintf("已切换到 [%d] %s（%d 条消息）", item.Index, item.Title, item.Msgs), true, nil
 	case "/rename":
 		item, err := o.sessions.Rename(ownerKey, arg)
 		if err != nil {
-			return err.Error(), true
+			return err.Error(), true, nil
 		}
-		return fmt.Sprintf("已重命名 [%d] → %s", item.Index, item.Title), true
+		return fmt.Sprintf("已重命名 [%d] → %s", item.Index, item.Title), true, nil
 	case "/clear":
-		// /clear tokens  → same as /tokens clear
 		if strings.EqualFold(strings.TrimSpace(arg), "tokens") || strings.EqualFold(strings.TrimSpace(arg), "token") {
 			view := o.sessions.ClearUsage(ownerKey, false)
-			return fmt.Sprintf("已清空 [%d] %s 的 token 统计", view.Index, view.Title), true
+			return fmt.Sprintf("已清空 [%d] %s 的 token 统计", view.Index, view.Title), true, nil
 		}
 		item := o.sessions.ClearActive(ownerKey)
-		return fmt.Sprintf("已清空 [%d] %s 的上下文", item.Index, item.Title), true
+		return fmt.Sprintf("已清空 [%d] %s 的上下文（含 Cursor Agent）", item.Index, item.Title), true, nil
 	case "/ctx", "/context":
-		return formatContext(o.sessions.ActiveSnapshot(ownerKey)), true
+		return formatContext(o.sessions.ActiveSnapshot(ownerKey)), true, nil
 	case "/tokens", "/usage":
 		argLower := strings.ToLower(strings.TrimSpace(arg))
 		switch argLower {
 		case "clear", "reset":
 			view := o.sessions.ClearUsage(ownerKey, false)
-			return fmt.Sprintf("已清空 [%d] %s 的 token 统计", view.Index, view.Title), true
+			return fmt.Sprintf("已清空 [%d] %s 的 token 统计", view.Index, view.Title), true, nil
 		case "clear all", "reset all":
 			view := o.sessions.ClearUsage(ownerKey, true)
-			return fmt.Sprintf("已清空本用户全部会话的 token 统计（当前 [%d] %s）", view.Index, view.Title), true
+			return fmt.Sprintf("已清空本用户全部会话的 token 统计（当前 [%d] %s）", view.Index, view.Title), true, nil
 		default:
-			return formatTokens(o.sessions.ActiveSnapshot(ownerKey)), true
+			return formatTokens(o.sessions.ActiveSnapshot(ownerKey)), true, nil
 		}
+	case "/workspace", "/cwd", "/pwd", "/repo":
+		return o.handleWorkspace(ownerKey, arg), true, nil
+	case "/cd":
+		return o.handleCd(ownerKey, arg), true, nil
+	case "/ls", "/dir":
+		return o.handleLs(ownerKey, arg), true, nil
+	case "/cursor":
+		out, err := o.handleCursorMode(ownerKey, arg)
+		return out, true, err
 	default:
-		return "未知指令。发送 /help 查看可用命令。", true
+		return "未知指令。发送 /help 查看可用命令。", true, nil
 	}
+}
+
+func (o *Orchestrator) defaultWorkspace() string {
+	if o.cfg != nil && o.cfg.ToolWorkspace != "" {
+		return o.cfg.ToolWorkspace
+	}
+	return "."
+}
+
+func (o *Orchestrator) currentDir(ownerKey string) string {
+	return o.sessions.ActiveWorkspace(ownerKey, o.cursorRoot())
+}
+
+func (o *Orchestrator) handleWorkspace(ownerKey, arg string) string {
+	arg = strings.TrimSpace(arg)
+	root := o.cursorRoot()
+	cur := o.currentDir(ownerKey)
+	if arg == "" {
+		return fmt.Sprintf("默认目录：%s\n当前目录：%s\n可用对话让模型 set_workdir 切到任意路径；/workspace clear 回默认", root, cur)
+	}
+	if strings.EqualFold(arg, "clear") || strings.EqualFold(arg, "reset") || arg == "-" || arg == "/" || arg == `\` {
+		o.sessions.ClearWorkspace(ownerKey)
+		return fmt.Sprintf("已回到 Cursor 根目录：\n%s", root)
+	}
+	abs, err := o.resolveAnyDir(arg, cur)
+	if err != nil {
+		return "无效路径：" + err.Error()
+	}
+	o.sessions.SetWorkspace(ownerKey, abs)
+	return fmt.Sprintf("已进入：\n%s\n可用自然语言让我切换目录，或 /cursor 需求 开始改代码。", abs)
+}
+
+func (o *Orchestrator) handleCd(ownerKey, arg string) string {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		return "用法：/cd 路径（任意盘符）  或  /cd ..\n当前：" + o.currentDir(ownerKey)
+	}
+	if arg == "/" || arg == `\` || strings.EqualFold(arg, "root") {
+		o.sessions.ClearWorkspace(ownerKey)
+		return "已回到默认目录：\n" + o.cursorRoot()
+	}
+	abs, err := o.resolveAnyDir(arg, o.currentDir(ownerKey))
+	if err != nil {
+		return "无法进入：" + err.Error()
+	}
+	o.sessions.SetWorkspace(ownerKey, abs)
+	return fmt.Sprintf("已进入：\n%s", abs)
+}
+
+func (o *Orchestrator) handleLs(ownerKey, arg string) string {
+	dir := o.currentDir(ownerKey)
+	if strings.TrimSpace(arg) != "" {
+		abs, err := o.resolveAnyDir(arg, dir)
+		if err != nil {
+			return "无法列出：" + err.Error()
+		}
+		dir = abs
+	}
+	out, err := listDirEntries(dir, 80)
+	if err != nil {
+		return "列出失败：" + err.Error()
+	}
+	return out
+}
+
+func looksLikePath(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, `\\`) {
+		return true
+	}
+	// Windows drive path: E:\ or E:/
+	if len(s) >= 3 && s[1] == ':' && (s[2] == '\\' || s[2] == '/') {
+		return true
+	}
+	return false
+}
+
+func (o *Orchestrator) handleCursorMode(ownerKey, arg string) (string, error) {
+	arg = strings.TrimSpace(arg)
+	argLower := strings.ToLower(arg)
+	ws := o.currentDir(ownerKey)
+
+	switch argLower {
+	case "exit", "off", "leave", "quit", "end":
+		if !o.sessions.IsCursorMode(ownerKey) {
+			return "当前不在 Cursor 模式。", nil
+		}
+		o.sessions.SetCursorMode(ownerKey, false)
+		return "已退出 Cursor 模式，后续消息回到普通对话。", nil
+	case "status", "？", "?":
+		mode := "关"
+		if o.sessions.IsCursorMode(ownerKey) {
+			mode = "开"
+		}
+		return fmt.Sprintf("Cursor 模式：%s\n工作目录：%s\n进入：/cursor\n退出：/cursor exit", mode, ws), nil
+	}
+
+	if o.cursorChannel() == nil {
+		return "未启用 Cursor：请在 .env 配置 CURSOR_API_KEY，并执行 npm install --prefix scripts/cursor-agent", nil
+	}
+
+	// Optional: /cursor D:\repo — set workdir then enter mode
+	if looksLikePath(arg) {
+		abs, err := o.resolveAnyDir(arg, ws)
+		if err != nil {
+			return "无效目录：" + err.Error(), nil
+		}
+		o.sessions.SetWorkspace(ownerKey, abs)
+		ws = abs
+		arg = ""
+	}
+
+	already := o.sessions.IsCursorMode(ownerKey)
+	o.sessions.SetCursorMode(ownerKey, true)
+	if arg == "" {
+		if already {
+			return fmt.Sprintf("已在 Cursor 模式。\n工作目录：%s\n直接发需求即可；退出：/cursor exit", ws), nil
+		}
+		return fmt.Sprintf("已进入 Cursor 模式。\n工作目录：%s\n接下来普通消息都会交给 Cursor 执行；退出：/cursor exit", ws), nil
+	}
+
+	// /cursor 修一下登录 — enter mode and run first prompt
+	return o.chatWithCursor(ownerKey, arg)
 }
 
 func helpText() string {
@@ -145,12 +321,13 @@ func helpText() string {
 /rename 标题 — 重命名当前
 /ctx — 查看当前上下文
 /tokens — 查看 token 消耗
-/tokens clear — 清空当前会话 token 统计
-/tokens clear all — 清空本用户全部 token 统计
-/clear — 清空当前上下文
-/clear tokens — 同 /tokens clear
+/cursor — 进入 Cursor 模式（之后普通消息走 Cursor）
+/cursor exit — 退出 Cursor 模式
+/cursor status — 查看是否在 Cursor 模式
+/workspace — 查看当前工作目录
+/clear — 清空当前上下文（含 Cursor Agent）
 
-消息超过阈值会自动压缩摘要。`)
+可先对话让模型 set_workdir 切目录，再 /cursor 进入模式改代码。`)
 }
 
 func formatList(items []session.ListItem) string {

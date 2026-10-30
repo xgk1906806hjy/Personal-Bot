@@ -24,14 +24,20 @@ func main() {
 		log.Fatalf("[boot] config: %v", err)
 	}
 
-	model, err := models.Create(cfg)
+	sessions := session.NewStore(cfg.SessionTTLHours, cfg.SessionCompressAfter, cfg.SessionKeepRecent)
+	model, err := models.Create(cfg, sessions)
 	if err != nil {
 		log.Fatalf("[boot] model: %v", err)
 	}
-	sessions := session.NewStore(cfg.SessionTTLHours, cfg.SessionCompressAfter, cfg.SessionKeepRecent)
-	orch := orchestrator.New(cfg, model, sessions)
+	cursor := models.CreateCursorOptional(cfg)
+	orch := orchestrator.New(cfg, model, sessions, cursor)
 	log.Printf("[boot] sessions multi-convo compress_after=%d keep_recent=%d ttl_h=%d",
 		cfg.SessionCompressAfter, cfg.SessionKeepRecent, cfg.SessionTTLHours)
+	if cfg.ModelChannel == config.ModelCursorLocal {
+		log.Printf("[boot] model channel cursor_local (peer of codex_local) cwd=%s", cfg.ToolWorkspace)
+	} else if cursor != nil {
+		log.Printf("[boot] /cursor bypass ready (TOOL_WORKSPACE=%s)", cfg.ToolWorkspace)
+	}
 
 	adapters, err := app.CreateMessagingAdapters(cfg.MessagingChannels)
 	if err != nil {
