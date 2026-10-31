@@ -10,7 +10,7 @@ func TestCursorAgentPayloadRoundTrip(t *testing.T) {
 		Prompt:  "add hello.txt",
 		Cwd:     `E:\workspace\demo`,
 		APIKey:  "cursor_test",
-		Model:   "composer-2.5",
+		Model:   "grok-4.7",
 		AgentID: "agent-1",
 	}
 	b, err := json.Marshal(in)
@@ -26,11 +26,29 @@ func TestCursorAgentPayloadRoundTrip(t *testing.T) {
 	}
 
 	raw := `{"ok":true,"text":"done","agentId":"agent-2","status":"finished","usage":{"promptTokens":1,"completionTokens":2,"totalTokens":3}}`
-	var resp cursorAgentOut
-	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+	resp, err := parseCursorAgentOut(raw)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if !resp.OK || resp.AgentID != "agent-2" || resp.Usage == nil || resp.Usage.TotalTokens != 3 {
 		t.Fatalf("parse out: %+v", resp)
+	}
+}
+
+func TestParseCursorAgentOutIgnoresSDKLogNoise(t *testing.T) {
+	raw := "16:18:00.251 INFO  Resolved the fallback encoding for shell output meta={encoding: \"cp936\"}\n" +
+		`{"ok":true,"text":"pong","agentId":"agent-x","status":"finished"}`
+	resp, err := parseCursorAgentOut(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.OK || resp.Text != "pong" || resp.AgentID != "agent-x" {
+		t.Fatalf("got %+v", resp)
+	}
+}
+
+func TestParseCursorAgentOutEmpty(t *testing.T) {
+	if _, err := parseCursorAgentOut("   "); err == nil {
+		t.Fatal("expected error")
 	}
 }

@@ -22,6 +22,34 @@ func newCursorLocalChannel(cfg *config.Config) *CursorLocalChannel {
 
 func (c *CursorLocalChannel) ID() config.ModelChannel { return config.ModelCursorLocal }
 
+// parseCursorAgentOut accepts a single JSON object, or the last JSON object line
+// when the SDK leaks log lines onto stdout.
+func parseCursorAgentOut(raw string) (cursorAgentOut, error) {
+	raw = strings.TrimSpace(raw)
+	var parsed cursorAgentOut
+	if raw == "" {
+		return parsed, fmt.Errorf("empty stdout from cursor agent")
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+		return parsed, nil
+	}
+	lines := strings.Split(raw, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || line[0] != '{' {
+			continue
+		}
+		if err := json.Unmarshal([]byte(line), &parsed); err == nil {
+			return parsed, nil
+		}
+	}
+	snippet := raw
+	if len(snippet) > 240 {
+		snippet = snippet[:240] + "…"
+	}
+	return cursorAgentOut{}, fmt.Errorf("invalid JSON from cursor agent: %s", snippet)
+}
+
 type cursorAgentIn struct {
 	Prompt  string `json:"prompt"`
 	Cwd     string `json:"cwd"`
@@ -97,20 +125,23 @@ func (c *CursorLocalChannel) Chat(req Request) (Response, error) {
 	}
 
 	rawOut := strings.TrimSpace(stdout.String())
-	var parsed cursorAgentOut
-	if rawOut != "" {
-		_ = json.Unmarshal([]byte(rawOut), &parsed)
-	}
+	parsed, parseErr := parseCursorAgentOut(rawOut)
 
 	if runErr != nil {
 		msg := parsed.Error
 		if msg == "" {
 			msg = strings.TrimSpace(stderr.String())
 		}
+		if msg == "" && parseErr != nil {
+			msg = parseErr.Error()
+		}
 		if msg == "" {
 			msg = runErr.Error()
 		}
 		return Response{}, fmt.Errorf("cursor_local failed: %s", msg)
+	}
+	if parseErr != nil {
+		return Response{}, fmt.Errorf("cursor_local failed: %w", parseErr)
 	}
 	if !parsed.OK {
 		msg := parsed.Error

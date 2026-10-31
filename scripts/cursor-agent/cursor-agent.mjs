@@ -5,9 +5,22 @@
  *
  * Input:  { prompt, cwd, apiKey, model, agentId? }
  * Output: { ok, text, agentId, status, usage? } | { ok:false, error, retryable?, agentId? }
+ *
+ * SDK may log to stdout; we redirect process.stdout writes to stderr until the
+ * final result line, so Go always sees a single JSON object on stdout.
  */
-import { Agent, CursorAgentError } from "@cursor/sdk";
 import { readFileSync } from "node:fs";
+
+const realStdoutWrite = process.stdout.write.bind(process.stdout);
+process.stdout.write = (chunk, encoding, cb) => {
+  if (typeof encoding === "function") {
+    cb = encoding;
+    encoding = undefined;
+  }
+  return process.stderr.write(chunk, encoding, cb);
+};
+
+const { Agent, CursorAgentError } = await import("@cursor/sdk");
 
 function readInput() {
   const raw = readFileSync(0, "utf8").trim();
@@ -26,6 +39,10 @@ function usageFrom(result) {
   return { promptTokens, completionTokens, totalTokens };
 }
 
+function writeResult(out) {
+  realStdoutWrite(JSON.stringify(out || { ok: false, error: "unknown error" }) + "\n");
+}
+
 async function main() {
   let exitCode = 0;
   let out;
@@ -36,7 +53,7 @@ async function main() {
     const prompt = String(input.prompt ?? "").trim();
     const cwd = String(input.cwd ?? "").trim();
     const apiKey = String(input.apiKey ?? process.env.CURSOR_API_KEY ?? "").trim();
-    const model = String(input.model ?? process.env.CURSOR_MODEL ?? "composer-2.5").trim();
+    const model = String(input.model ?? process.env.CURSOR_MODEL ?? "grok-4.7").trim();
     const prevAgentId = input.agentId ? String(input.agentId).trim() : "";
 
     if (!prompt) {
@@ -106,7 +123,7 @@ async function main() {
     }
   }
 
-  process.stdout.write(JSON.stringify(out || { ok: false, error: "unknown error" }) + "\n");
+  writeResult(out);
   process.exit(exitCode);
 }
 
