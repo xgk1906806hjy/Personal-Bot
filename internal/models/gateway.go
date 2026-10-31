@@ -75,7 +75,7 @@ func (c *gatewayChannel) Chat(req Request) (Response, error) {
 	}
 	maxRounds := c.cfg.ToolMaxRounds
 	if maxRounds <= 0 {
-		maxRounds = 8
+		maxRounds = 10
 	}
 	if !useTools {
 		maxRounds = 1

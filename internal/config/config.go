@@ -96,7 +96,7 @@ func Load() (*Config, error) {
 		GatewayAPIExtraHeaderName:  os.Getenv("GATEWAY_API_EXTRA_HEADER_NAME"),
 		GatewayAPIExtraHeaderValue: os.Getenv("GATEWAY_API_EXTRA_HEADER_VALUE"),
 		CursorAPIKey:               os.Getenv("CURSOR_API_KEY"),
-		CursorModel:                getenv("CURSOR_MODEL", "composer-2.5"),
+		CursorModel:                getenv("CURSOR_MODEL", "grok-4.7"),
 		CursorNodeBin:              getenv("CURSOR_NODE_BIN", "node"),
 		SessionTTLHours:            getenvInt("SESSION_TTL_HOURS", 2),
 		SessionCompressAfter:       getenvInt("SESSION_COMPRESS_AFTER", 30),
@@ -109,7 +109,7 @@ func Load() (*Config, error) {
 		WebToolsEnabled:       getenvBool("WEB_TOOLS_ENABLED", true),
 		ToolCommandTimeoutSec: getenvInt("TOOL_COMMAND_TIMEOUT_SEC", 60),
 		ToolHTTPTimeoutSec:    getenvInt("TOOL_HTTP_TIMEOUT_SEC", 20),
-		ToolMaxRounds:         getenvInt("TOOL_MAX_ROUNDS", 8),
+		ToolMaxRounds:         getenvInt("TOOL_MAX_ROUNDS", 10),
 		ToolMaxOutputBytes:    getenvInt("TOOL_MAX_OUTPUT_BYTES", 100_000),
 	}
 
