@@ -1,3 +1,5 @@
+// Package orchestrator 是对话中枢：斜杠指令、Cursor 模式、主通道 Chat、会话压缩触发。
+// 消息适配器把平台差异收敛为 IncomingUserMessage 后只调用 Handle。
 package orchestrator
 
 import (
@@ -11,7 +13,7 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/session"
 )
 
-// IncomingUserMessage is platform-agnostic inbound chat.
+// IncomingUserMessage 是与平台无关的入站消息。
 type IncomingUserMessage struct {
 	Platform  config.MessagingPlatform
 	ChatID    string
@@ -20,17 +22,23 @@ type IncomingUserMessage struct {
 	Text      string
 }
 
+// Orchestrator 持有主模型、可选 Cursor 旁路与会话存储。
 type Orchestrator struct {
 	cfg      *config.Config
 	model    models.Channel
-	cursor   models.Channel // optional; used only by /cursor
+	cursor   models.Channel // 可选；仅 /cursor 模式使用
 	sessions *session.Store
 }
 
+// New 装配编排器。cursor 可为 nil（未配置 CURSOR_API_KEY 时）。
 func New(cfg *config.Config, model models.Channel, sessions *session.Store, cursor models.Channel) *Orchestrator {
 	return &Orchestrator{cfg: cfg, model: model, cursor: cursor, sessions: sessions}
 }
 
+// Handle 处理一条用户消息：
+//  1. 斜杠指令 → 直接回状态文案
+//  2. Cursor 模式（或主通道即 cursor_local）→ chatWithCursor
+//  3. 否则主通道 Chat；条数超阈值则触发摘要压缩
 func (o *Orchestrator) Handle(msg IncomingUserMessage) (string, error) {
 	ownerKey := session.BuildKey(msg.Platform, msg.ChatID, msg.UserID)
 	text := strings.TrimSpace(msg.Text)
@@ -65,6 +73,7 @@ func (o *Orchestrator) Handle(msg IncomingUserMessage) (string, error) {
 	return result.Text, nil
 }
 
+// cursorChannel 优先用旁路 cursor；否则当主通道本身是 cursor_local 时复用 model。
 func (o *Orchestrator) cursorChannel() models.Channel {
 	if o.cursor != nil {
 		return o.cursor
@@ -75,6 +84,7 @@ func (o *Orchestrator) cursorChannel() models.Channel {
 	return nil
 }
 
+// chatWithCursor 走 Cursor SDK（不经过 gateway 工具循环），并写回 agentId 便于 resume。
 func (o *Orchestrator) chatWithCursor(ownerKey, text string) (string, error) {
 	cursor := o.cursorChannel()
 	if cursor == nil {
@@ -84,13 +94,24 @@ func (o *Orchestrator) chatWithCursor(ownerKey, text string) (string, error) {
 
 	conversationID, _ := o.sessions.LoadActiveMessages(ownerKey)
 	ws := o.sessions.ActiveWorkspace(ownerKey, o.defaultWorkspace())
+	agentID := o.sessions.LoadActiveCursorAgentID(ownerKey)
 	result, err := cursor.Chat(models.Request{
 		SessionKey:      ownerKey,
 		ConversationID:  conversationID,
 		Prompt:          text,
-		ExternalAgentID: o.sessions.LoadActiveCursorAgentID(ownerKey),
+		ExternalAgentID: agentID,
 		Workspace:       ws,
 	})
+	// 旧 agentId 可能已失效（bot/SDK 重启等）；清掉后无 id 重试一次。
+	if err != nil && agentID != "" && isStaleCursorAgentErr(err) {
+		o.sessions.SetCursorAgentID(ownerKey, "")
+		result, err = cursor.Chat(models.Request{
+			SessionKey:     ownerKey,
+			ConversationID: conversationID,
+			Prompt:         text,
+			Workspace:      ws,
+		})
+	}
 	if err != nil {
 		return "", err
 	}
@@ -100,6 +121,14 @@ func (o *Orchestrator) chatWithCursor(ownerKey, text string) (string, error) {
 	}
 	o.sessions.AppendTurn(ownerKey, text, result.Text)
 	return fmt.Sprintf("[Cursor | %s]\n%s", ws, result.Text), nil
+}
+
+func isStaleCursorAgentErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") && strings.Contains(msg, "agent")
 }
 
 func (o *Orchestrator) recordUsage(ownerKey string, u models.TokenUsage) {
@@ -113,6 +142,7 @@ func (o *Orchestrator) ModelChannelID() config.ModelChannel {
 	return o.model.ID()
 }
 
+// handleCommand 解析以 / 开头的指令；handled=false 表示交给普通对话。
 func (o *Orchestrator) handleCommand(ownerKey, text string) (reply string, handled bool, err error) {
 	if !strings.HasPrefix(text, "/") {
 		return "", false, nil
@@ -264,6 +294,7 @@ func looksLikePath(s string) bool {
 	return false
 }
 
+// handleCursorMode 处理 /cursor [exit|status|路径|需求]。
 func (o *Orchestrator) handleCursorMode(ownerKey, arg string) (string, error) {
 	arg = strings.TrimSpace(arg)
 	argLower := strings.ToLower(arg)
@@ -426,6 +457,7 @@ func toModelMessages(hist []session.Message) []models.ChatMessage {
 	return out
 }
 
+// modelSummarizer 用主模型做会话摘要；DisableTools 避免压缩时再调工具。
 type modelSummarizer struct {
 	model    models.Channel
 	sessions *session.Store

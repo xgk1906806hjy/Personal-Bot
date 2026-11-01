@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -49,6 +50,62 @@ func (f *fakeCursor) Chat(req models.Request) (models.Response, error) {
 		ExternalAgentID: "agent-test",
 		Usage:           models.TokenUsage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
 	}, nil
+}
+
+func TestIsStaleCursorAgentErr(t *testing.T) {
+	if !isStaleCursorAgentErr(fmt.Errorf("cursor_local failed: Agent agent-x not found")) {
+		t.Fatal("expected stale")
+	}
+	if isStaleCursorAgentErr(fmt.Errorf("cursor_local failed: rate limited")) {
+		t.Fatal("unexpected stale")
+	}
+}
+
+type staleThenOKCursor struct {
+	calls int
+	last  models.Request
+}
+
+func (f *staleThenOKCursor) ID() config.ModelChannel { return config.ModelCursorLocal }
+func (f *staleThenOKCursor) Chat(req models.Request) (models.Response, error) {
+	f.calls++
+	f.last = req
+	if f.calls == 1 && req.ExternalAgentID != "" {
+		return models.Response{}, fmt.Errorf("cursor_local failed: Agent %s not found", req.ExternalAgentID)
+	}
+	return models.Response{
+		Channel:         f.ID(),
+		Text:            "recovered",
+		ExternalAgentID: "agent-new",
+		Usage:           models.TokenUsage{TotalTokens: 1},
+	}, nil
+}
+
+func TestChatWithCursorRecoversStaleAgent(t *testing.T) {
+	cfg := &config.Config{ToolWorkspace: `E:\cursor`}
+	store := session.NewStore(2, 30, 16)
+	key := session.BuildKey(config.PlatformQQ, "c", "u")
+	store.SetCursorMode(key, true)
+	store.SetCursorAgentID(key, "agent-old")
+	c := &staleThenOKCursor{}
+	o := New(cfg, &fakeModel{}, store, c)
+
+	reply, err := o.Handle(IncomingUserMessage{Platform: config.PlatformQQ, ChatID: "c", UserID: "u", Text: "继续"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply, "recovered") {
+		t.Fatalf("reply=%q", reply)
+	}
+	if c.calls != 2 {
+		t.Fatalf("calls=%d want 2", c.calls)
+	}
+	if c.last.ExternalAgentID != "" {
+		t.Fatalf("retry should clear agent id, got %q", c.last.ExternalAgentID)
+	}
+	if store.LoadActiveCursorAgentID(key) != "agent-new" {
+		t.Fatalf("want new agent id stored")
+	}
 }
 
 func TestSlashCommands(t *testing.T) {

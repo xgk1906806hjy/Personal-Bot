@@ -43,6 +43,19 @@ function writeResult(out) {
   realStdoutWrite(JSON.stringify(out || { ok: false, error: "unknown error" }) + "\n");
 }
 
+function isAgentNotFound(err) {
+  const msg = String(err?.message || err || "");
+  return /agent/i.test(msg) && /not found/i.test(msg);
+}
+
+async function createAgent(apiKey, model, cwd) {
+  return Agent.create({
+    apiKey,
+    model: { id: model },
+    local: { cwd },
+  });
+}
+
 async function main() {
   let exitCode = 0;
   let out;
@@ -66,19 +79,23 @@ async function main() {
       out = { ok: false, error: "apiKey / CURSOR_API_KEY is required" };
       exitCode = 1;
     } else {
+      let recreated = false;
       if (prevAgentId) {
-        agent = await Agent.resume(prevAgentId, { apiKey });
+        try {
+          agent = await Agent.resume(prevAgentId, { apiKey });
+        } catch (err) {
+          // Stale agent ids are common after bot/SDK restart or TTL expiry.
+          if (!isAgentNotFound(err)) throw err;
+          agent = await createAgent(apiKey, model, cwd);
+          recreated = true;
+        }
       } else {
-        agent = await Agent.create({
-          apiKey,
-          model: { id: model },
-          local: { cwd },
-        });
+        agent = await createAgent(apiKey, model, cwd);
       }
 
       const run = await agent.send(prompt);
       const result = await run.wait();
-      const id = agent.agentId || run.agentId || prevAgentId || "";
+      const id = agent.agentId || run.agentId || (recreated ? "" : prevAgentId) || "";
 
       if (result.status === "error") {
         out = {
@@ -86,6 +103,7 @@ async function main() {
           error: result.error?.message || `run failed: ${result.id || "unknown"}`,
           agentId: id,
           status: "error",
+          recreated,
         };
         exitCode = 2;
       } else {
@@ -95,6 +113,7 @@ async function main() {
           agentId: id,
           status: result.status || "finished",
           usage: usageFrom(result),
+          recreated,
         };
       }
     }
@@ -104,10 +123,14 @@ async function main() {
       out = {
         ok: false,
         error: err.message || String(err),
-        retryable: Boolean(err.isRetryable),
+        retryable: Boolean(err.isRetryable) || isAgentNotFound(err),
       };
     } else {
-      out = { ok: false, error: err?.message || String(err) };
+      out = {
+        ok: false,
+        error: err?.message || String(err),
+        retryable: isAgentNotFound(err),
+      };
     }
   } finally {
     if (agent) {
