@@ -1,3 +1,7 @@
+// Package session 是多会话与上下文的唯一真相源（内存存储，进程重启清空）。
+//
+// Owner 键：platform:chat:user。每个 owner 最多 MaxConversations 个会话，
+// 并实现 tools.WorkdirStore，使 set_workdir 与 /cursor 共用 Workspace。
 package session
 
 import (
@@ -9,14 +13,16 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/config"
 )
 
+// MaxConversations 是每个 owner 允许的会话上限。
 const MaxConversations = 10
 
+// Message 是一条会话消息。
 type Message struct {
 	Role    string // user | assistant | system
 	Content string
 }
 
-// UsageStats accumulates API/estimated token counts.
+// UsageStats 累计 API 或估算的 token 消耗。
 type UsageStats struct {
 	PromptTokens     int
 	CompletionTokens int
@@ -50,25 +56,27 @@ func (u *UsageStats) Clear() {
 	*u = UsageStats{}
 }
 
+// Conversation 是单个对话线程的状态。
 type Conversation struct {
 	ID            string
 	Title         string
 	UpdatedAt     time.Time
 	Messages      []Message
 	Usage         UsageStats
-	CursorAgentID string // Cursor SDK local agent id for resume
-	Workspace     string // optional override of TOOL_WORKSPACE for Cursor
-	CursorMode    bool   // /cursor entered: normal messages route to Cursor
+	CursorAgentID string // Cursor SDK agent id，用于 resume
+	Workspace     string // 覆盖 TOOL_WORKSPACE；空则用默认
+	CursorMode    bool   // true 时普通消息走 Cursor
 }
 
+// ownerBag 聚合一个用户在某聊天下的全部会话。
 type ownerBag struct {
 	ActiveID      string
 	Conversations []*Conversation
 	UpdatedAt     time.Time
-	Usage         UsageStats // owner-wide across all conversations
+	Usage         UsageStats // owner 级合计（跨会话）
 }
 
-// ListItem is a numbered view of one conversation for /list.
+// ListItem 供 /list 展示。
 type ListItem struct {
 	Index  int
 	ID     string
@@ -77,7 +85,7 @@ type ListItem struct {
 	Msgs   int
 }
 
-// ActiveView is a snapshot for /ctx and /tokens.
+// ActiveView 供 /ctx、/tokens 展示当前会话快照。
 type ActiveView struct {
 	Index        int
 	ID           string
@@ -91,6 +99,7 @@ type ActiveView struct {
 	CursorMode   bool
 }
 
+// Store 是线程安全的会话仓库。
 type Store struct {
 	ttl           time.Duration
 	compressAfter int
@@ -100,6 +109,7 @@ type Store struct {
 	seq           uint64
 }
 
+// NewStore 创建会话仓。ttlHours<=0 表示不按 TTL 淘汰。
 func NewStore(ttlHours, compressAfter, keepRecent int) *Store {
 	if compressAfter <= 0 {
 		compressAfter = 30
@@ -124,6 +134,7 @@ func NewStore(ttlHours, compressAfter, keepRecent int) *Store {
 func (s *Store) CompressAfter() int { return s.compressAfter }
 func (s *Store) KeepRecent() int    { return s.keepRecent }
 
+// BuildKey 生成 owner 键：platform:chatID:userID。
 func BuildKey(platform config.MessagingPlatform, chatID, userID string) string {
 	return fmt.Sprintf("%s:%s:%s", platform, chatID, userID)
 }
@@ -237,7 +248,7 @@ func (s *Store) ActiveWorkspace(ownerKey, fallback string) string {
 	return fallback
 }
 
-// GetWorkdir implements tools.WorkdirStore (empty means use TOOL_WORKSPACE root).
+// GetWorkdir 实现 tools.WorkdirStore；空串表示使用 TOOL_WORKSPACE 默认根。
 func (s *Store) GetWorkdir(sessionKey string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -246,14 +257,14 @@ func (s *Store) GetWorkdir(sessionKey string) string {
 	return strings.TrimSpace(c.Workspace)
 }
 
-// SetWorkdir implements tools.WorkdirStore.
+// SetWorkdir 实现 tools.WorkdirStore。
 func (s *Store) SetWorkdir(sessionKey, absPath string) error {
 	s.SetWorkspace(sessionKey, absPath)
 	return nil
 }
 
-// SetWorkspace sets the Cursor/tool working directory for the active conversation.
-// Changing workspace clears CursorAgentID so the next run creates a new agent.
+// SetWorkspace 设置当前会话的 Cursor/工具工作目录。
+// 变更目录会清空 CursorAgentID，下次运行会新建 Agent。
 func (s *Store) SetWorkspace(ownerKey, absPath string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

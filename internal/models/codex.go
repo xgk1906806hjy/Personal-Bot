@@ -10,8 +10,8 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/config"
 )
 
-// CodexLocalChannel shells out to the Codex CLI (no Node SDK in Go).
-// Requires Codex CLI installed and authenticated on this machine.
+// CodexLocalChannel 通过本机 Codex CLI（codex exec）跑任务，与 cursor_local 同级。
+// 需要本机已安装并登录 Codex CLI。
 type CodexLocalChannel struct {
 	cfg *config.Config
 }

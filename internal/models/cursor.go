@@ -11,7 +11,8 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/config"
 )
 
-// CursorLocalChannel shells out to scripts/cursor-agent (Cursor SDK local Agent).
+// CursorLocalChannel 通过 Node 助手脚本调用 Cursor SDK 本地 Agent。
+// stdin/stdout 交换 JSON；SDK 日志被脚本重定向到 stderr，避免污染结果。
 type CursorLocalChannel struct {
 	cfg *config.Config
 }

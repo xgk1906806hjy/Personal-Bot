@@ -1,3 +1,4 @@
+// Package feishu 实现飞书机器人 Webhook 适配器（校验、解密、回复）。
 package feishu
 
 import (
@@ -12,6 +13,7 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/orchestrator"
 )
 
+// Adapter 处理 POST /feishu/webhook；processed 用于事件去重。
 type Adapter struct {
 	client *Client
 	orch   *orchestrator.Orchestrator
@@ -27,6 +29,7 @@ func NewAdapter() *Adapter {
 
 func (a *Adapter) ID() config.MessagingPlatform { return config.PlatformFeishu }
 
+// Mount 注册飞书回调路由。
 func (a *Adapter) Mount(ctx messaging.AdapterContext) error {
 	a.cfg = ctx.Config
 	a.orch = ctx.Orchestrator

@@ -5,9 +5,8 @@ import (
 	"strings"
 )
 
-// Workspace holds the default starting directory (TOOL_WORKSPACE).
-// Session workdirs may point anywhere on the machine; relative paths resolve
-// from the current workdir with no root jail.
+// Workspace 保存默认起点目录（TOOL_WORKSPACE）。
+// 会话 workdir 可指向本机任意路径；相对路径相对当前 workdir 解析，无根目录监禁。
 type Workspace struct {
 	Root string
 }

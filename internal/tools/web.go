@@ -14,6 +14,8 @@ import (
 	"golang.org/x/net/html"
 )
 
+// 无 API Key 的联网工具：web_search（DuckDuckGo HTML）与 fetch_url（拉页面正文）。
+
 const (
 	defaultSearchEndpoint = "https://html.duckduckgo.com/html/"
 	defaultHTTPTimeout    = 20 * time.Second
@@ -21,6 +23,7 @@ const (
 	browserUA             = "Mozilla/5.0 (compatible; PersonalBot/1.0; +https://github.com/xgk1906806hjy/Personal-Bot)"
 )
 
+// webHTTP 为联网工具共享的 HTTP 客户端与截断上限。
 type webHTTP struct {
 	client         *http.Client
 	maxBytes       int

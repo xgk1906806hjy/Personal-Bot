@@ -1,3 +1,5 @@
+// Package config 从环境变量（通常来自 .env）加载进程配置。
+// 配置在启动时一次性读入内存，运行中不热更新；修改后需重启进程。
 package config
 
 import (
@@ -10,8 +12,13 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// MessagingPlatform 是入站消息通道标识（qq / feishu / wechat）。
 type MessagingPlatform string
+
+// ModelChannel 是主模型通道标识（gateway_api / codex_local / cursor_local）。
 type ModelChannel string
+
+// QQTransport 控制 QQ 入站方式：WebSocket、Webhook 或两者。
 type QQTransport string
 
 const (
@@ -28,6 +35,7 @@ const (
 	QQTransportBoth      QQTransport = "both"
 )
 
+// Config 聚合全部运行时配置。字段与 .env.example 中的环境变量一一对应。
 type Config struct {
 	Port string
 	Host string
@@ -57,22 +65,23 @@ type Config struct {
 	CursorAPIKey      string
 	CursorModel       string
 	CursorNodeBin     string
-	CursorAgentScript string // absolute path to cursor-agent.mjs
+	CursorAgentScript string // cursor-agent.mjs 的绝对路径
 
 	SessionTTLHours      int
 	SessionCompressAfter int
 	SessionKeepRecent    int
 	BotSystemPrompt      string
 
-	ToolsEnabled          bool
-	WebToolsEnabled       bool
+	ToolsEnabled          bool // 是否为 gateway 注册本地工具
+	WebToolsEnabled       bool // 是否注册 web_search / fetch_url
 	ToolWorkspace         string
 	ToolCommandTimeoutSec int
 	ToolHTTPTimeoutSec    int
-	ToolMaxRounds         int
+	ToolMaxRounds         int // gateway 工具循环最大轮数
 	ToolMaxOutputBytes    int
 }
 
+// Load 读取 .env（若存在）与进程环境变量，校验必填项并规范化路径。
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 

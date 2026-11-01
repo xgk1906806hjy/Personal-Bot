@@ -1,3 +1,4 @@
+// Package app 负责依赖装配（wiring），当前主要是按配置创建消息适配器。
 package app
 
 import (
@@ -10,6 +11,7 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/messaging/wechat"
 )
 
+// CreateMessagingAdapters 按 MESSAGING_CHANNELS 顺序创建适配器实例。
 func CreateMessagingAdapters(ids []config.MessagingPlatform) ([]messaging.Adapter, error) {
 	out := make([]messaging.Adapter, 0, len(ids))
 	for _, id := range ids {
@@ -35,6 +37,7 @@ func createMessagingAdapter(id config.MessagingPlatform) (messaging.Adapter, err
 	}
 }
 
+// ReadyMessagingPlatforms 返回已真正实现（非占位）的消息平台。
 func ReadyMessagingPlatforms() []config.MessagingPlatform {
 	return []config.MessagingPlatform{config.PlatformQQ, config.PlatformFeishu}
 }

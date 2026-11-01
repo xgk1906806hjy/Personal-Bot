@@ -15,6 +15,7 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/tools"
 )
 
+// gatewayChannel 调用 OpenAI 兼容的 chat.completions，并可选跑本地工具循环。
 type gatewayChannel struct {
 	cfg    *config.Config
 	client *http.Client
@@ -31,6 +32,8 @@ func newGatewayChannel(cfg *config.Config, registry *tools.Registry) *gatewayCha
 
 func (c *gatewayChannel) ID() config.ModelChannel { return config.ModelGatewayAPI }
 
+// Chat 发送用户提示；若启用工具则最多 TOOL_MAX_ROUNDS 轮 tool_calls，
+// 每轮可并行执行多个工具，直到模型给出无工具的最终文本。
 func (c *gatewayChannel) Chat(req Request) (Response, error) {
 	conversationID := req.ConversationID
 	if conversationID == "" {

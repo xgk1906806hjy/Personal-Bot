@@ -10,6 +10,7 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/orchestrator"
 )
 
+// QQ 网关 WebSocket 操作码与 Intent（群 + C2C）。
 const (
 	opDispatch        = 0
 	opHeartbeat       = 1

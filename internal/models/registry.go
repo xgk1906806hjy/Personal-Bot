@@ -10,6 +10,8 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/tools"
 )
 
+// Create 按 MODEL_CHANNEL 构造主模型通道。
+// gateway_api 在 TOOLS_ENABLED 时注入 tools.Registry（workdirs 来自 session.Store）。
 func Create(cfg *config.Config, workdirs tools.WorkdirStore) (Channel, error) {
 	switch cfg.ModelChannel {
 	case config.ModelGatewayAPI:
@@ -44,13 +46,13 @@ func Create(cfg *config.Config, workdirs tools.WorkdirStore) (Channel, error) {
 	}
 }
 
+// List 返回已实现的模型通道 id。
 func List() []config.ModelChannel {
 	return []config.ModelChannel{config.ModelGatewayAPI, config.ModelCodexLocal, config.ModelCursorLocal}
 }
 
-// CreateCursorOptional returns a secondary cursor_local channel when CURSOR_API_KEY
-// is set and the primary MODEL_CHANNEL is not already cursor_local.
-// Used for the /cursor slash bypass alongside gateway_api or codex_local.
+// CreateCursorOptional 在配置了 CURSOR_API_KEY 且主通道不是 cursor_local 时，
+// 返回供 /cursor 模式使用的旁路通道；否则返回 nil。
 func CreateCursorOptional(cfg *config.Config) Channel {
 	if cfg == nil || strings.TrimSpace(cfg.CursorAPIKey) == "" {
 		return nil

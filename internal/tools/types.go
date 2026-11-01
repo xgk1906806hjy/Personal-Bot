@@ -1,3 +1,5 @@
+// Package tools 提供 gateway_api 可调用的本地工具（文件、shell、workdir、联网检索）。
+// 工具经 OpenAI tools 协议暴露；路径通过 SessionKey 解析到会话级 workdir。
 package tools
 
 import (
@@ -5,7 +7,7 @@ import (
 	"encoding/json"
 )
 
-// Tool is a single callable function exposed to the model.
+// Tool 是暴露给模型的单个可调用函数。
 type Tool interface {
 	Name() string
 	Description() string
@@ -13,7 +15,7 @@ type Tool interface {
 	Execute(ctx context.Context, argsJSON string) (string, error)
 }
 
-// OpenAITool is the chat.completions tools[] item shape.
+// OpenAITool 对应 chat.completions 的 tools[] 项。
 type OpenAITool struct {
 	Type     string `json:"type"`
 	Function struct {
@@ -23,6 +25,7 @@ type OpenAITool struct {
 	} `json:"function"`
 }
 
+// ToOpenAITools 把内部 Tool 列表转成网关 API 所需的 JSON 形态。
 func ToOpenAITools(list []Tool) []OpenAITool {
 	out := make([]OpenAITool, 0, len(list))
 	for _, t := range list {

@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// pathResolver resolves paths relative to the session workdir (or workspace root).
+// pathResolver 相对「会话 workdir（或默认根）」解析文件路径。
 type pathResolver struct {
 	ws    *Workspace
 	store WorkdirStore

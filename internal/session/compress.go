@@ -6,13 +6,14 @@ import (
 	"strings"
 )
 
-// Summarizer produces a short digest of older conversation turns.
+// Summarizer 将较早的对话轮次压缩成短摘要。
 type Summarizer interface {
 	Summarize(old []Message) (string, error)
 }
 
-// MaybeCompress shrinks history when message count exceeds compressAfter.
-// Keeps the last keepRecent messages and prepends one system summary message.
+// MaybeCompress 在消息数超过 compressAfter 时压缩历史：
+// 保留最近 keepRecent 条，并在前面插入一条 system 摘要。
+// 摘要失败则硬截断为 recent。
 func (s *Store) MaybeCompress(ownerKey string, sum Summarizer) error {
 	s.mu.Lock()
 	bag := s.getOrCreateLocked(ownerKey)

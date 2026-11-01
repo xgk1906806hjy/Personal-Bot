@@ -8,6 +8,8 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/orchestrator"
 )
 
+// 入站事件解析与去重；先回 thinking，再异步调 Orchestrator。
+
 var (
 	processedMu sync.Mutex
 	processed   = make(map[string]struct{})

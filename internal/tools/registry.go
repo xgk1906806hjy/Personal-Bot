@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// Options 控制工具注册与执行限制。
 type Options struct {
 	Workspace      string
 	CommandTimeout time.Duration
@@ -15,11 +16,12 @@ type Options struct {
 	EnableShell    bool
 	EnableWeb      bool
 	HTTPTimeout    time.Duration
-	// SearchEndpoint overrides DuckDuckGo HTML URL (tests).
+	// SearchEndpoint 覆盖 DuckDuckGo HTML 地址（单测用）。
 	SearchEndpoint string
 	Workdirs       WorkdirStore
 }
 
+// Registry 保存已注册工具，并提供 OpenAI 形态与 Execute。
 type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]Tool
@@ -28,6 +30,7 @@ type Registry struct {
 	paths *pathResolver
 }
 
+// NewRegistry 按选项注册内置工具（文件 / workdir / 可选 shell 与 web）。
 func NewRegistry(opts Options) (*Registry, error) {
 	if opts.CommandTimeout <= 0 {
 		opts.CommandTimeout = 60 * time.Second

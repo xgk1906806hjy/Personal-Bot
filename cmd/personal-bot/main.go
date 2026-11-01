@@ -1,3 +1,11 @@
+// Command personal-bot 是 Personal Bot 的进程入口。
+//
+// 启动顺序：
+//  1. 加载 .env → Config
+//  2. 创建 session.Store（多会话 / workdir / Cursor 模式）
+//  3. 创建主模型通道；可选 CreateCursorOptional（/cursor 旁路）
+//  4. 装配 Orchestrator + 消息适配器，挂到 HTTP mux
+//  5. 监听 HOST:PORT，等待信号后优雅退出
 package main
 
 import (
@@ -24,11 +32,13 @@ func main() {
 		log.Fatalf("[boot] config: %v", err)
 	}
 
+	// sessions 同时作为 tools.WorkdirStore 注入 gateway，使 set_workdir 与 /cursor 共用目录。
 	sessions := session.NewStore(cfg.SessionTTLHours, cfg.SessionCompressAfter, cfg.SessionKeepRecent)
 	model, err := models.Create(cfg, sessions)
 	if err != nil {
 		log.Fatalf("[boot] model: %v", err)
 	}
+	// 主通道不是 cursor_local 时，若配置了 CURSOR_API_KEY，则提供 /cursor 模式旁路。
 	cursor := models.CreateCursorOptional(cfg)
 	orch := orchestrator.New(cfg, model, sessions, cursor)
 	log.Printf("[boot] sessions multi-convo compress_after=%d keep_recent=%d ttl_h=%d",

@@ -1,3 +1,4 @@
+// Package qq 实现 QQ 开放平台机器人适配器（WebSocket 和/或 Webhook）。
 package qq
 
 import (
@@ -8,6 +9,7 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/messaging"
 )
 
+// Adapter 按 QQ_TRANSPORT 挂载入站通道。
 type Adapter struct {
 	ws *WSClient
 }
@@ -16,6 +18,7 @@ func NewAdapter() *Adapter { return &Adapter{} }
 
 func (a *Adapter) ID() config.MessagingPlatform { return config.PlatformQQ }
 
+// Mount 启动 WS 长连接和/或注册 /qq/webhook。
 func (a *Adapter) Mount(ctx messaging.AdapterContext) error {
 	api := NewAPIClient(ctx.Config)
 	switch ctx.Config.QQTransport {

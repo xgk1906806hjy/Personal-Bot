@@ -1,3 +1,5 @@
+// Package httpapi 提供进程级 HTTP 路由（健康检查等）。
+// 各消息适配器可在 Mount 时往同一 mux 挂 webhook。
 package httpapi
 
 import (
@@ -11,6 +13,7 @@ import (
 	"github.com/xgk1906806hjy/Personal-Bot/internal/orchestrator"
 )
 
+// NewMux 创建根路由；目前仅注册 GET /healthz。
 func NewMux(cfg *config.Config, orch *orchestrator.Orchestrator, adapters []messaging.Adapter) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

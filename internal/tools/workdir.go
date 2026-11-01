@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+// get_workdir / set_workdir：查看与切换会话工作目录（可任意绝对路径）。
+
 type getWorkdirTool struct {
 	r *pathResolver
 }

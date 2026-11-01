@@ -7,12 +7,13 @@ import (
 	"strings"
 )
 
+// cursorRoot 返回 TOOL_WORKSPACE（Cursor / 工具默认起点）。
 func (o *Orchestrator) cursorRoot() string {
 	return filepath.Clean(o.defaultWorkspace())
 }
 
-// resolveAnyDir resolves raw (absolute or relative to current) to an existing directory.
-// No drive/root jail — any path on the machine is allowed.
+// resolveAnyDir 将路径解析为已存在的目录（绝对路径，或相对 current）。
+// 不做盘符/根目录监禁，本机任意路径均可。
 func (o *Orchestrator) resolveAnyDir(raw, current string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	raw = strings.Trim(raw, `"'`)
