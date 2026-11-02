@@ -1,4 +1,4 @@
-// Package messaging 定义消息平台适配器接口。
+// messaging 包定义消息平台适配器接口。
 // 各子包（qq / feishu / wechat）实现 Adapter，把平台事件转为 orchestrator 入站消息。
 package messaging
 

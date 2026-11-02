@@ -23,8 +23,7 @@ func newCursorLocalChannel(cfg *config.Config) *CursorLocalChannel {
 
 func (c *CursorLocalChannel) ID() config.ModelChannel { return config.ModelCursorLocal }
 
-// parseCursorAgentOut accepts a single JSON object, or the last JSON object line
-// when the SDK leaks log lines onto stdout.
+// parseCursorAgentOut 解析助手 stdout：整段 JSON，或 SDK 日志混入时取最后一行 JSON 对象。
 func parseCursorAgentOut(raw string) (cursorAgentOut, error) {
 	raw = strings.TrimSpace(raw)
 	var parsed cursorAgentOut
@@ -83,7 +82,7 @@ func (c *CursorLocalChannel) Chat(req Request) (Response, error) {
 	if prompt == "" {
 		return Response{}, fmt.Errorf("cursor_local: empty prompt")
 	}
-	// On first turn (no Cursor agent yet), prepend bot system prompt once.
+	// 首轮尚无 Cursor agent 时，把机器人 system prompt 前置一次。
 	if req.ExternalAgentID == "" && c.cfg.BotSystemPrompt != "" {
 		prompt = c.cfg.BotSystemPrompt + "\n\nUser request:\n" + prompt
 	}

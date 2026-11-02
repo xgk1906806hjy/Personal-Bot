@@ -56,7 +56,7 @@ func (s *Store) MaybeCompress(ownerKey string, sum Summarizer) error {
 	return nil
 }
 
-// FormatMessagesForSummary builds plain text for the summarizer prompt.
+// FormatMessagesForSummary 把消息格式化成供摘要模型阅读的纯文本。
 func FormatMessagesForSummary(msgs []Message) string {
 	var b strings.Builder
 	for _, m := range msgs {

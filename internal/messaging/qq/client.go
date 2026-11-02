@@ -183,7 +183,7 @@ func truncate(text string, max int) string {
 
 func cleanText(content string) string {
 	content = strings.TrimSpace(content)
-	// Strip <@!openid> style mentions.
+	// 去掉 <@!openid> 形式的 @ 提及。
 	for {
 		start := strings.Index(content, "<@")
 		if start < 0 {

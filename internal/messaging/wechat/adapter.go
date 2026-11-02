@@ -1,4 +1,4 @@
-// Package wechat 为微信 / 企微适配器占位，尚未实现 Mount。
+// wechat 包为微信 / 企微适配器占位，尚未实现 Mount。
 package wechat
 
 import (

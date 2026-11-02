@@ -1,4 +1,4 @@
-// Package qq 实现 QQ 开放平台机器人适配器（WebSocket 和/或 Webhook）。
+// qq 包实现 QQ 开放平台机器人适配器（WebSocket 和/或 Webhook）。
 package qq
 
 import (

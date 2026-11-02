@@ -71,7 +71,7 @@ func TestMultiConversationSwitch(t *testing.T) {
 func TestMaxConversations(t *testing.T) {
 	s := NewStore(2, 30, 16)
 	key := BuildKey(config.PlatformQQ, "c", "u")
-	// default already 1
+	// 默认已有 1 个会话
 	for i := 0; i < MaxConversations-1; i++ {
 		if _, err := s.Create(key, fmt.Sprintf("t%d", i)); err != nil {
 			t.Fatal(err)
@@ -106,7 +106,7 @@ func TestMaybeCompress(t *testing.T) {
 	for i := 0; i < 16; i++ {
 		s.AppendTurn(key, fmt.Sprintf("u%d", i), fmt.Sprintf("a%d", i))
 	}
-	// 32 messages > 30
+	// 32 条消息 > 30 阈值
 	sum := &stubSummarizer{}
 	if err := s.MaybeCompress(key, sum); err != nil {
 		t.Fatal(err)
@@ -115,20 +115,20 @@ func TestMaybeCompress(t *testing.T) {
 		t.Fatalf("summarize calls=%d", sum.calls)
 	}
 	_, msgs := s.LoadActiveMessages(key)
-	// 1 summary + 16 recent
+	// 1 条摘要 + 最近 16 条
 	if len(msgs) != 17 {
 		t.Fatalf("want 17 msgs after compress, got %d", len(msgs))
 	}
 	if msgs[0].Role != "system" || msgs[0].Content == "" {
 		t.Fatalf("first should be summary system msg: %+v", msgs[0])
 	}
-	if msgs[1].Content != "u8" { // kept last 16 of 32 → starts at turn index 8 (msgs 16..)
-		// 32 messages: indices 0..31; keep last 16 → indices 16..31
-		// message 16 is user of turn 8 → "u8"
+	if msgs[1].Content != "u8" { // 保留最后 16/32 条 → 从第 8 轮用户消息开始
+		// 32 条：下标 0..31；保留最后 16 → 16..31
+		// 下标 16 是第 8 轮的 user → "u8"
 		t.Fatalf("unexpected first kept content: %q", msgs[1].Content)
 	}
 
-	// Under threshold: no-op
+	// 未超阈值：不压缩
 	sum2 := &stubSummarizer{}
 	if err := s.MaybeCompress(key, sum2); err != nil {
 		t.Fatal(err)

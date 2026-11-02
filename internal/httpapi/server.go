@@ -1,4 +1,4 @@
-// Package httpapi 提供进程级 HTTP 路由（健康检查等）。
+// httpapi 包提供进程级 HTTP 路由（健康检查等）。
 // 各消息适配器可在 Mount 时往同一 mux 挂 webhook。
 package httpapi
 

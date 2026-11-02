@@ -34,7 +34,7 @@ func decryptEncryptString(encryptKey, cryptoText string) ([]byte, error) {
 	mode := cipher.NewCBCDecrypter(block, iv)
 	mode.CryptBlocks(data, data)
 
-	// Trim PKCS7 padding and find JSON object bounds.
+	// 去掉 PKCS7 填充，并定位 JSON 对象边界。
 	left := -1
 	right := -1
 	for i, b := range data {

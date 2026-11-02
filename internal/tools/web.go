@@ -232,7 +232,7 @@ func (t *fetchURLTool) Execute(ctx context.Context, argsJSON string) (string, er
 		strings.Contains(ctMain, "json") ||
 		strings.Contains(ctMain, "xml") ||
 		strings.Contains(ctMain, "javascript"):
-		// keep as-is
+		// 文本/JSON 等保持原文
 	default:
 		return "", fmt.Errorf("unsupported content-type: %s", ctMain)
 	}
@@ -291,7 +291,7 @@ func parseDDGResults(page string, limit int) []searchHit {
 }
 
 func findNearbySnippet(anchor *html.Node) string {
-	// Climb to result container then find result__snippet.
+	// 向上找到结果容器，再取 result__snippet。
 	cur := anchor
 	for i := 0; i < 6 && cur != nil; i++ {
 		cur = cur.Parent

@@ -1,4 +1,4 @@
-// Package tools 提供 gateway_api 可调用的本地工具（文件、shell、workdir、联网检索）。
+// tools 包提供 gateway_api 可调用的本地工具（文件、shell、workdir、联网检索）。
 // 工具经 OpenAI tools 协议暴露；路径通过 SessionKey 解析到会话级 workdir。
 package tools
 

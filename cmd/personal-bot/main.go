@@ -1,4 +1,4 @@
-// Command personal-bot 是 Personal Bot 的进程入口。
+// personal-bot 是 Personal Bot 的进程入口。
 //
 // 启动顺序：
 //  1. 加载 .env → Config

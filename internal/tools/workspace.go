@@ -26,13 +26,13 @@ func NewWorkspace(root string) (*Workspace, error) {
 	return &Workspace{Root: abs}, nil
 }
 
-// Resolve joins rel under the default root.
+// Resolve 把相对路径拼到默认根目录下。
 func (w *Workspace) Resolve(rel string) (string, error) {
 	return w.ResolveFrom(w.Root, rel)
 }
 
-// ResolveFrom joins rel under base, or accepts an absolute path as-is.
-// No confinement to TOOL_WORKSPACE — any reachable path is allowed.
+// ResolveFrom 相对 base 拼接路径；若已是绝对路径则原样接受。
+// 不限制在 TOOL_WORKSPACE 内，本机可达路径均可。
 func (w *Workspace) ResolveFrom(base, rel string) (string, error) {
 	if rel == "" {
 		rel = "."

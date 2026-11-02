@@ -1,4 +1,4 @@
-// Package orchestrator 是对话中枢：斜杠指令、Cursor 模式、主通道 Chat、会话压缩触发。
+// orchestrator 包是对话中枢：斜杠指令、Cursor 模式、主通道 Chat、会话压缩触发。
 // 消息适配器把平台差异收敛为 IncomingUserMessage 后只调用 Handle。
 package orchestrator
 
@@ -287,7 +287,7 @@ func looksLikePath(s string) bool {
 	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, `\\`) {
 		return true
 	}
-	// Windows drive path: E:\ or E:/
+	// Windows 盘符路径：E:\ 或 E:/
 	if len(s) >= 3 && s[1] == ':' && (s[2] == '\\' || s[2] == '/') {
 		return true
 	}
@@ -319,7 +319,7 @@ func (o *Orchestrator) handleCursorMode(ownerKey, arg string) (string, error) {
 		return "未启用 Cursor：请在 .env 配置 CURSOR_API_KEY，并执行 npm install --prefix scripts/cursor-agent", nil
 	}
 
-	// Optional: /cursor D:\repo — set workdir then enter mode
+	// 可选：/cursor D:\repo — 先设目录再进入模式
 	if looksLikePath(arg) {
 		abs, err := o.resolveAnyDir(arg, ws)
 		if err != nil {
@@ -339,7 +339,7 @@ func (o *Orchestrator) handleCursorMode(ownerKey, arg string) (string, error) {
 		return fmt.Sprintf("已进入 Cursor 模式。\n工作目录：%s\n接下来普通消息都会交给 Cursor 执行；退出：/cursor exit", ws), nil
 	}
 
-	// /cursor 修一下登录 — enter mode and run first prompt
+	// /cursor 修一下登录 — 进入模式并立刻执行第一条需求
 	return o.chatWithCursor(ownerKey, arg)
 }
 

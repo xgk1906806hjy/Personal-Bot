@@ -1,4 +1,4 @@
-// Package feishu 实现飞书机器人 Webhook 适配器（校验、解密、回复）。
+// feishu 包实现飞书机器人 Webhook 适配器（校验、解密、回复）。
 package feishu
 
 import (
@@ -65,7 +65,7 @@ func (a *Adapter) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// URL verification (v1 style)
+	// URL 校验（v1 形态）
 	if typ, _ := envelope["type"].(string); typ == "url_verification" {
 		challenge, _ := envelope["challenge"].(string)
 		token, _ := envelope["token"].(string)
@@ -78,7 +78,7 @@ func (a *Adapter) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Event v2
+	// 事件 v2
 	if schema, _ := envelope["schema"].(string); schema == "2.0" {
 		header, _ := envelope["header"].(map[string]any)
 		if a.cfg.FeishuVerificationToken != "" {
@@ -97,7 +97,7 @@ func (a *Adapter) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Event v1 callback
+	// 事件 v1 回调
 	if typ, _ := envelope["type"].(string); typ == "event_callback" {
 		w.WriteHeader(http.StatusOK)
 		return

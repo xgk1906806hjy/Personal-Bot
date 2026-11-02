@@ -201,7 +201,7 @@ func (c *WSClient) handleFrame(conn *websocket.Conn, data []byte) error {
 			go handleInbound(payload.T, d, c.api, c.orch)
 		}
 	case opHeartbeatACK:
-		// ok
+		// 心跳 ACK，无需处理
 	case opReconnect:
 		log.Printf("[qq:ws] server requested reconnect")
 		c.mu.Lock()

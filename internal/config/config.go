@@ -1,4 +1,4 @@
-// Package config 从环境变量（通常来自 .env）加载进程配置。
+// config 包从环境变量（通常来自 .env）加载进程配置。
 // 配置在启动时一次性读入内存，运行中不热更新；修改后需重启进程。
 package config
 
@@ -65,7 +65,7 @@ type Config struct {
 	CursorAPIKey      string
 	CursorModel       string
 	CursorNodeBin     string
-	CursorAgentScript string // cursor-agent.mjs 的绝对路径
+	CursorAgentScript string // cursor-agent.mjs 绝对路径
 
 	SessionTTLHours      int
 	SessionCompressAfter int
@@ -73,12 +73,12 @@ type Config struct {
 	BotSystemPrompt      string
 
 	ToolsEnabled          bool // 是否为 gateway 注册本地工具
-	WebToolsEnabled       bool // 是否注册 web_search / fetch_url
+	WebToolsEnabled       bool // 是否注册联网工具 web_search / fetch_url
 	ToolWorkspace         string
 	ToolCommandTimeoutSec int
 	ToolHTTPTimeoutSec    int
 	ToolMaxRounds         int // gateway 工具循环最大轮数
-	ToolMaxOutputBytes    int
+	ToolMaxOutputBytes    int // 工具输出最大字节数
 }
 
 // Load 读取 .env（若存在）与进程环境变量，校验必填项并规范化路径。
@@ -173,7 +173,7 @@ func Load() (*Config, error) {
 				return nil, fmt.Errorf("QQ_APP_ID and QQ_APP_SECRET are required when MESSAGING_CHANNELS includes qq")
 			}
 		case PlatformWechat:
-			// Placeholder adapter exists; Mount() returns a clear not-implemented error.
+			// 占位适配器已存在；Mount() 会返回明确的未实现错误。
 		}
 	}
 

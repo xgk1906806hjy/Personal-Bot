@@ -67,7 +67,7 @@ func mountWebhook(mux *http.ServeMux, api *APIClient, orch *orchestrator.Orchest
 			}
 		}
 
-		// ACK ASAP
+		// 尽快 ACK
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"op": opHTTPCallbackACK, "d": 0})
 

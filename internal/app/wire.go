@@ -1,4 +1,4 @@
-// Package app 负责依赖装配（wiring），当前主要是按配置创建消息适配器。
+// app 包负责依赖装配，当前主要是按配置创建消息适配器。
 package app
 
 import (

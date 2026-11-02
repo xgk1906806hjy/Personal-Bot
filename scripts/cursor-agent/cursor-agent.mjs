@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Cursor SDK local agent helper for Personal Bot (Go cursor_local channel).
- * Reads one JSON object from stdin, writes one JSON object to stdout.
+ * Personal Bot 的 Cursor SDK 本地 Agent 助手（供 Go cursor_local 通道调用）。
+ * 从 stdin 读入一个 JSON 对象，向 stdout 写出一个 JSON 对象。
  *
- * Input:  { prompt, cwd, apiKey, model, agentId? }
- * Output: { ok, text, agentId, status, usage? } | { ok:false, error, retryable?, agentId? }
+ * 输入：{ prompt, cwd, apiKey, model, agentId? }
+ * 输出：{ ok, text, agentId, status, usage? } 或 { ok:false, error, retryable?, agentId? }
  *
- * SDK may log to stdout; we redirect process.stdout writes to stderr until the
- * final result line, so Go always sees a single JSON object on stdout.
+ * SDK 可能往 stdout 打日志；在写出最终结果前，把 process.stdout 重定向到 stderr，
+ * 保证 Go 侧 stdout 上只有一行 JSON。
  */
 import { readFileSync } from "node:fs";
 
@@ -84,7 +84,7 @@ async function main() {
         try {
           agent = await Agent.resume(prevAgentId, { apiKey });
         } catch (err) {
-          // Stale agent ids are common after bot/SDK restart or TTL expiry.
+          // bot/SDK 重启或 TTL 过期后，旧 agentId 常会失效。
           if (!isAgentNotFound(err)) throw err;
           agent = await createAgent(apiKey, model, cwd);
           recreated = true;
@@ -141,7 +141,7 @@ async function main() {
           await agent.close();
         }
       } catch {
-        // ignore dispose errors
+        // 忽略释放时的错误
       }
     }
   }

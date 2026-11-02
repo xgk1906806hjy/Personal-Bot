@@ -1,4 +1,4 @@
-// Package models 定义可插拔的模型通道（gateway_api / codex_local / cursor_local）。
+// models 包定义可插拔的模型通道（gateway_api / codex_local / cursor_local）。
 package models
 
 import "github.com/xgk1906806hjy/Personal-Bot/internal/config"
@@ -37,7 +37,7 @@ type TokenUsage struct {
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
-	Estimated        bool // true 表示非 API usage 字段估算
+	Estimated        bool // true 表示用量来自估算而非 API usage 字段
 }
 
 func (u TokenUsage) Add(other TokenUsage) TokenUsage {
