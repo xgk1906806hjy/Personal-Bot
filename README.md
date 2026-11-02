@@ -20,12 +20,16 @@ QQ / 飞书 / 微信     gateway_api / codex_local / cursor_local
 
 ## 现状（Go）
 
-| 层 | 已就绪 | 说明 |
-|----|--------|------|
-| 消息平台 | `qq`（WebSocket + Webhook）、`feishu`（Webhook） | `wechat` 仅为占位 |
-| 模型通道 | `gateway_api`、`codex_local`、`cursor_local` | 三者同级；另可用 `/cursor` 会话级进入 Cursor 模式 |
-| 工具 | `read_file` / `write_file` / `list_dir` / `run_command` / `get_workdir` / `set_workdir` / `web_search` / `fetch_url` | 仅 `gateway_api`；按需调用；会话级 workdir；无 Key 联网检索 |
-| 会话 | 多会话、压缩、token 统计、Cursor 模式与 Agent resume | 内存存储，重启清空；配置在 `.env`，改完需重启 |
+
+| 层    | 已就绪                                                                                                                  | 说明                                          |
+| ---- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| 消息平台 | `qq`（WebSocket + Webhook）、`feishu`（Webhook）                                                                          | `wechat` 仅为占位                               |
+| 模型通道 | `gateway_api`、`codex_local`、`cursor_local`                                                                           | 三者同级；另可用 `/cursor` 会话级进入 Cursor 模式          |
+| 工具   | `read_file` / `write_file` / `list_dir` / `run_command` / `get_workdir` / `set_workdir` / `web_search` / `fetch_url` | 仅 `gateway_api`；按需调用；会话级 workdir；无 Key 联网检索 |
+| 会话   | 多会话、压缩、token 统计、Cursor 模式与 Agent resume                                                                              | 内存存储，重启清空；配置在 `.env`，改完需重启                  |
+
+
+
 
 ## 快速开始
 
@@ -62,6 +66,8 @@ QQ_TRANSPORT=webhook
 # 回调地址：https://你的域名/qq/webhook（端口仅 80/443/8080/8443）
 ```
 
+
+
 ### 飞书
 
 ```env
@@ -73,6 +79,8 @@ FEISHU_VERIFICATION_TOKEN=...
 FEISHU_ENCRYPT_KEY=...
 # 回调地址：https://你的域名/feishu/webhook
 ```
+
+
 
 ### 模型
 
@@ -94,6 +102,8 @@ CURSOR_API_KEY=cursor_...
 CURSOR_MODEL=grok-4.7
 TOOL_WORKSPACE=E:\cursor
 ```
+
+
 
 ### Cursor 模式（推荐：主通道仍用 gateway）
 
@@ -130,12 +140,14 @@ TOOL_MAX_ROUNDS=10
 TOOL_MAX_OUTPUT_BYTES=100000
 ```
 
-| 工具 | 作用 |
-|------|------|
-| `list_dir` / `read_file` / `write_file` / `run_command` | 相对**当前会话 workdir** |
-| `get_workdir` / `set_workdir` | 查看 / 切换工作目录（可绝对路径到任意盘） |
-| `web_search` | 无 Key 联网搜索（DuckDuckGo HTML）；返回标题/链接/摘要 |
-| `fetch_url` | 拉取 http(s) 页面正文（HTML 去标签）；受 `TOOL_MAX_OUTPUT_BYTES` 截断 |
+
+| 工具                                                      | 作用                                                     |
+| ------------------------------------------------------- | ------------------------------------------------------ |
+| `list_dir` / `read_file` / `write_file` / `run_command` | 相对**当前会话 workdir**                                     |
+| `get_workdir` / `set_workdir`                           | 查看 / 切换工作目录（可绝对路径到任意盘）                                 |
+| `web_search`                                            | 无 Key 联网搜索（DuckDuckGo HTML）；返回标题/链接/摘要                 |
+| `fetch_url`                                             | 拉取 http(s) 页面正文（HTML 去标签）；受 `TOOL_MAX_OUTPUT_BYTES` 截断 |
+
 
 模型按需调用工具（`tool_choice=auto`），不会每次全调。摘要压缩请求会 `DisableTools`，避免压缩时再调工具；`/cursor` 走 Cursor SDK，不用这套 Go 工具。
 
@@ -147,22 +159,24 @@ DDG HTML 可能偶发风控或页面结构变化。`WEB_TOOLS_ENABLED=false` 可
 
 按 `平台:聊天:用户` 隔离；每人最多 10 个会话；内存存储（进程重启清空）。TTL 默认 2 小时。
 
-| 指令 | 说明 |
-|------|------|
-| `/help` | 帮助 |
-| `/list` | 列出会话（`*` 为当前） |
-| `/new [标题]` | 新建并切换 |
-| `/use N` | 切换到第 N 个 |
-| `/rename 标题` | 重命名当前 |
-| `/ctx` | 查看当前上下文 |
-| `/tokens` | 查看 token 消耗 |
-| `/tokens clear` / `/tokens clear all` | 清空统计 |
-| `/workspace` | 查看当前工作目录；`clear` 回默认 |
-| `/cursor` | 进入 Cursor 模式 |
-| `/cursor exit` | 退出 Cursor 模式 |
-| `/cursor status` | 查看模式状态 |
-| `/clear` | 清空上下文（保留 Cursor 模式与 workdir） |
-| `/clear tokens` | 同 `/tokens clear` |
+
+| 指令                                    | 说明                           |
+| ------------------------------------- | ---------------------------- |
+| `/help`                               | 帮助                           |
+| `/list`                               | 列出会话（`*` 为当前）                |
+| `/new [标题]`                           | 新建并切换                        |
+| `/use N`                              | 切换到第 N 个                     |
+| `/rename 标题`                          | 重命名当前                        |
+| `/ctx`                                | 查看当前上下文                      |
+| `/tokens`                             | 查看 token 消耗                  |
+| `/tokens clear` / `/tokens clear all` | 清空统计                         |
+| `/workspace`                          | 查看当前工作目录；`clear` 回默认         |
+| `/cursor`                             | 进入 Cursor 模式                 |
+| `/cursor exit`                        | 退出 Cursor 模式                 |
+| `/cursor status`                      | 查看模式状态                       |
+| `/clear`                              | 清空上下文（保留 Cursor 模式与 workdir） |
+| `/clear tokens`                       | 同 `/tokens clear`            |
+
 
 消息超过 `SESSION_COMPRESS_AFTER`（默认 30）自动摘要压缩，保留最近 `SESSION_KEEP_RECENT`（默认 16）条。Cursor 模式下不做条数压缩。
 
@@ -171,6 +185,8 @@ SESSION_TTL_HOURS=2
 SESSION_COMPRESS_AFTER=30
 SESSION_KEEP_RECENT=16
 ```
+
+
 
 ## 目录结构
 
@@ -190,7 +206,7 @@ internal/
 legacy/node/
 ```
 
-模块细节见 **[docs/MODULES.md](docs/MODULES.md)**。
+模块细节与**代码阅读指南**（推荐顺序、场景路径）见 **[docs/MODULES.md](docs/MODULES.md)**，尤其是 [§15 代码阅读指南](docs/MODULES.md#15-代码阅读指南)。
 
 ## 说明
 
@@ -199,3 +215,4 @@ legacy/node/
 - 联网检索无需第三方 API Key（DuckDuckGo HTML + 直接拉页）。
 - 微信适配器尚未实现。
 - 密钥只放 `.env`（已 gitignore）；`scripts/cursor-agent/node_modules` 不入库。
+

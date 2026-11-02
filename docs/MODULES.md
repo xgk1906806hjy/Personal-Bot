@@ -1,6 +1,7 @@
 # 模块说明
 
-本文描述 Personal Bot（Go 主运行时）各包职责、关键类型、数据流与配置边界。快速上手见根目录 [README.md](../README.md)。
+本文描述 Personal Bot（Go 主运行时）各包职责、关键类型、数据流与配置边界。快速上手见根目录 [README.md](../README.md)。  
+新人建议先读 [§15 代码阅读指南](#15-代码阅读指南)，再按包下钻。
 
 ## 1. 总体架构
 
@@ -314,3 +315,98 @@ sequenceDiagram
 | [`internal/models/gateway.go`](../internal/models/gateway.go) | 网关 + 工具循环 |
 | [`scripts/cursor-agent/`](../scripts/cursor-agent/) | Cursor SDK 助手 |
 | [`.env.example`](../.env.example) | 配置模板（改后需重启） |
+
+---
+
+## 15. 代码阅读指南
+
+建议按「启动装配 → 消息入站 → 编排分流 → 模型/工具」的顺序读，先建立主路径，再下钻分支。
+
+### 15.1 推荐阅读顺序
+
+| 步 | 先看 | 目的 |
+|----|------|------|
+| 1 | [`cmd/personal-bot/main.go`](../cmd/personal-bot/main.go) | 进程如何把 config / session / model / cursor / orch / messaging 串起来 |
+| 2 | [`internal/config/config.go`](../internal/config/config.go) | `.env` 有哪些旋钮、启动时一次性载入 |
+| 3 | [`internal/app/wire.go`](../internal/app/wire.go) + [`internal/messaging/types.go`](../internal/messaging/types.go) | 适配器工厂与 `Adapter` 契约 |
+| 4 | [`internal/messaging/qq/`](../internal/messaging/qq/)（或 feishu） | 平台事件如何变成 `IncomingUserMessage` |
+| 5 | [`internal/orchestrator/orchestrator.go`](../internal/orchestrator/orchestrator.go) 的 `Handle` | 斜杠指令 / Cursor 模式 / 普通 Chat 三岔口 |
+| 6 | [`internal/session/store.go`](../internal/session/store.go) | 多会话、workdir、CursorMode、agentId、压缩阈值 |
+| 7 | [`internal/models/registry.go`](../internal/models/registry.go) + [`gateway.go`](../internal/models/gateway.go) | 主通道选择与工具循环 |
+| 8 | [`internal/tools/`](../internal/tools/) | 工具如何注册、按 SessionKey 解析路径并执行 |
+| 9 | [`internal/models/cursor.go`](../internal/models/cursor.go) + [`scripts/cursor-agent/`](../scripts/cursor-agent/) | `/cursor` 旁路如何调 SDK |
+
+读完 1→5 即可回答「一条 QQ 消息从哪进、到哪出」；6→9 用于改会话策略、工具或 Cursor。
+
+### 15.2 阅读路径总览
+
+```mermaid
+flowchart TD
+  start([打开仓库]) --> main[main.go 启动顺序]
+  main --> cfg[config.Load]
+  main --> orchFile[orchestrator.Handle]
+  main --> msg[messaging Adapter.Mount]
+
+  msg --> qqOrFs[qq/ws 或 feishu/webhook]
+  qqOrFs --> handle[Handle 三岔口]
+
+  handle --> cmdPath[斜杠指令分支]
+  handle --> cursorPath[CursorMode / cursor_local]
+  handle --> normalPath[普通 gateway Chat]
+
+  cmdPath --> sessCmd[session 列表新建切换等]
+  cursorPath --> cursorGo[models/cursor.go]
+  cursorGo --> helper[scripts/cursor-agent]
+  normalPath --> gw[models/gateway.go 工具循环]
+  gw --> toolsReg[tools.Registry.Execute]
+  toolsReg --> sessWd[session WorkdirStore]
+  normalPath --> compress[session.MaybeCompress]
+```
+
+### 15.3 按场景跟代码
+
+**A. 启动与健康检查**
+
+1. `main.go`：`config.Load` → `session.NewStore` → `models.Create` → `CreateCursorOptional` → `orchestrator.New` → `CreateMessagingAdapters` → `Mount` → `ListenAndServe`
+2. `httpapi.NewMux`：`GET /healthz` 看 messaging / model 状态
+
+**B. 普通对话（gateway + 工具）**
+
+1. QQ/飞书入站 → `orchestrator.Handle`
+2. 非 `/` 且未开 Cursor → `model.Chat`（`gateway_api`）
+3. `gateway.Chat`：拼 system + 历史 + prompt；若 `TOOLS_ENABLED` 则带 `tools`，`tool_choice=auto`
+4. 模型返回 `tool_calls` → `tools.Execute`（如 `list_dir` / `read_file` / `set_workdir` / `web_search`）→ 结果以 `role=tool` 回灌 → 最多 `TOOL_MAX_ROUNDS` 轮
+5. 最终文本 → `AppendTurn`；条数超阈值 → `MaybeCompress`（摘要请求 `DisableTools`）
+
+**C. Cursor 改代码模式**
+
+1. `/cursor` → `SetCursorMode(true)`（可选先设路径）
+2. 之后普通消息 → `chatWithCursor` → `cursor_local.Chat` → Node 助手 JSON stdin/stdout
+3. 返回的 `agentId` 写入 session，下次 resume；失效则助手/编排层会清 id 并新建
+4. `/cursor exit` 退回主通道
+
+**D. 工作目录**
+
+1. 默认起点：`TOOL_WORKSPACE`（`config` → tools / Cursor cwd）
+2. 会话覆盖：`set_workdir` 工具或 `/workspace` `/cd` → `session.Workspace`
+3. 文件工具经 `pathResolver` + context 里的 `SessionKey` 读 `WorkdirStore`
+
+### 15.4 阅读时注意的边界
+
+| 点 | 说明 |
+|----|------|
+| 配置 | 只在启动时 `Load`，改 `.env` 需重启 |
+| 工具范围 | 仅 `gateway_api` 普通 Chat；Cursor / 压缩摘要不走 Go tools |
+| 会话存储 | 内存；进程重启清空（含 CursorMode / agentId） |
+| 路径策略 | `TOOL_WORKSPACE` 是默认起点，不是路径监狱 |
+| 遗留代码 | `legacy/node/` 非主运行时，可后读或不读 |
+
+### 15.5 建议的最短路径（约 30 分钟）
+
+1. 通读 `main.go`
+2. 只读 `orchestrator.Handle` + `handleCommand` / `handleCursorMode` / `chatWithCursor` 签名与分支
+3. 扫一眼 `gateway.Chat` 的 for 工具循环
+4. 打开 `session.Store` 里 `Workspace` / `CursorMode` / `CursorAgentID` 字段与相关方法
+5. 按 §14 文件索引按需下钻
+
+更细的包职责见上文 §2–§14；端到端图见 [§1.1](#11-总体流程图)。
